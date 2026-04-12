@@ -129,7 +129,7 @@ if "_dns_bulk_results" in st.session_state:
 
     st.dataframe(
         summary_df.style.apply(highlight_score, axis=1),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 

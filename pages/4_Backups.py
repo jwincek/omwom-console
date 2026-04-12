@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone
 
+from lib.database import log_activity
+from lib.semaphore import get_client
 from lib.mock_backups import (
     get_backup_history,
     get_database_backups,
@@ -16,6 +18,7 @@ st.set_page_config(page_title="Backups - OMWOM Console", page_icon=":satellite:"
 st.title("Backup Status")
 st.caption("3-2-1 backup strategy: 3 copies, 2 storage types, 1 off-site")
 
+client = get_client()
 now = datetime.now(timezone.utc)
 
 # ── Summary metrics ─────────────────────────────────────
@@ -36,40 +39,205 @@ m3.metric("Databases", f"{latest['databases']}")
 m4.metric("Total Size", f"{latest['size_mb']:,} MB")
 m5.metric("Providers", f"{sum(1 for p in providers if p['status'] == 'synced')}/{len(providers)} synced")
 
+# ── Manual backup ───────────────────────────────────────
+with st.expander("Run backup now"):
+    st.caption("Trigger an on-demand backup via Semaphore. Uses the same `backup_manager.py` as the daily cron.")
+
+    scope = st.radio(
+        "Scope",
+        ["Full backup", "Databases only", "Files only", "Single database"],
+        horizontal=True,
+        key="backup_scope",
+    )
+
+    selected_db = None
+    if scope == "Single database":
+        db_names = [db["database"] for db in db_backups]
+        selected_db = st.selectbox("Database", db_names, key="backup_single_db")
+
+    skip_upload = st.checkbox("Skip remote upload", key="backup_skip_upload",
+                              help="Run the backup locally without uploading to Backblaze/Hetzner. Useful for quick pre-change snapshots.")
+
+    extra_vars = {}
+    if scope == "Databases only":
+        extra_vars["backup_scope"] = "databases"
+    elif scope == "Files only":
+        extra_vars["backup_scope"] = "files"
+    elif scope == "Single database":
+        extra_vars["backup_scope"] = "single"
+        extra_vars["backup_database"] = selected_db
+    if skip_upload:
+        extra_vars["backup_skip_upload"] = True
+
+    if st.button("Run backup", type="primary", key="btn_run_backup"):
+        scope_desc = scope.lower()
+        if selected_db:
+            scope_desc = f"{selected_db} only"
+        if skip_upload:
+            scope_desc += " (local only)"
+
+        log_activity("backup", "backup_triggered", f"Manual backup: {scope_desc}")
+
+        if client.mock_mode:
+            with st.status("Running backup...", expanded=True) as status:
+                st.write(f"Scope: {scope_desc}")
+                if extra_vars:
+                    st.code(
+                        "\n".join(f"{k}: {v}" for k, v in extra_vars.items()),
+                        language="yaml",
+                    )
+                st.write("Mock: would trigger `backup-run.yml` via Semaphore")
+                status.update(label="Backup simulated (mock mode)", state="complete")
+        else:
+            task = client.run_task(template_id=12, extra_vars=extra_vars)
+            with st.status("Running backup...", expanded=True) as status:
+                st.write(f"Scope: {scope_desc}")
+                st.write(f"Semaphore task #{task['id']} started")
+                result = client.wait_for_task(task["id"])
+                if result["status"] == "success":
+                    status.update(label="Backup complete", state="complete")
+                    log_activity("backup", "backup_completed", f"Manual backup succeeded: {scope_desc}")
+                else:
+                    status.update(label="Backup failed", state="error")
+                    log_activity("backup", "backup_failed", f"Manual backup failed: {scope_desc}", status="error")
+
+    # ── Verify backups button ───────────────────────────
+    st.divider()
+    st.caption("Run an on-demand verification of local backup checksums.")
+
+    if st.button("Verify backups", key="btn_verify_backup"):
+        log_activity("backup", "verify_triggered", "Manual verification")
+
+        if client.mock_mode:
+            with st.status("Verifying backups...", expanded=True) as status:
+                st.write("Mock: would trigger `backup-verify.yml` via Semaphore")
+                status.update(label="Verification simulated (mock mode)", state="complete")
+        else:
+            task = client.run_task(template_id=13)
+            with st.status("Verifying backups...", expanded=True) as status:
+                st.write(f"Semaphore task #{task['id']} started")
+                result = client.wait_for_task(task["id"])
+                if result["status"] == "success":
+                    status.update(label="Verification complete", state="complete")
+                else:
+                    status.update(label="Verification failed", state="error")
+
 st.divider()
 
-# ── Backup history chart ────────────────────────────────
-st.subheader("Backup History (14 days)")
+# ── Backup history ──────────────────────────────────────
+import altair as alt
 
-chart_data = pd.DataFrame([
-    {
+range_col, rate_col = st.columns([2, 1])
+with range_col:
+    history_days = st.radio(
+        "History range",
+        [7, 14, 30],
+        index=1,
+        horizontal=True,
+        key="history_range",
+        format_func=lambda d: f"{d} days",
+    )
+
+history = get_backup_history(days=history_days)
+
+success_count = sum(1 for h in history if h["status"] == "success")
+with rate_col:
+    success_rate = (success_count / len(history)) * 100 if history else 0
+    st.metric("Success Rate", f"{success_count}/{len(history)} ({success_rate:.0f}%)")
+
+st.subheader(f"Backup History ({history_days} days)")
+
+chart_rows = []
+for h in reversed(history):
+    prev_idx = next((j for j, hh in enumerate(reversed(history)) if hh["date"] < h["date"]), None)
+    prev_size = list(reversed(history))[prev_idx]["size_mb"] if prev_idx is not None else h["size_mb"]
+    delta = h["size_mb"] - prev_size
+
+    mins = h["duration_sec"] // 60
+    secs = h["duration_sec"] % 60
+
+    status_icon = {"success": "🟢", "partial": "🟠", "failed": "🔴"}.get(h["status"], "⚪")
+
+    chart_rows.append({
         "Date": h["date"].strftime("%m/%d"),
         "Size (MB)": h["size_mb"],
-        "Duration (min)": round(h["duration_sec"] / 60, 1),
+        "Duration": f"{mins}m {secs}s",
+        "Duration (sec)": h["duration_sec"],
         "Databases": h["databases"],
+        "Files": h["files"],
         "Status": h["status"],
-    }
-    for h in reversed(history)
-])
+        "Status Icon": f"{status_icon} {h['status']}",
+        "Delta": f"{'+' if delta >= 0 else ''}{delta} MB",
+        "error_detail": h.get("error_detail", ""),
+    })
 
-tab_chart, tab_table = st.tabs(["Chart", "Table"])
+chart_data = pd.DataFrame(chart_rows)
+
+tab_chart, tab_dual, tab_table = st.tabs(["Size", "Size + Duration", "Table"])
 
 with tab_chart:
-    st.bar_chart(chart_data.set_index("Date")["Size (MB)"])
+    color_scale = alt.Scale(
+        domain=["success", "partial", "failed"],
+        range=["#22c55e", "#f59e0b", "#ef4444"],
+    )
+
+    bars = alt.Chart(chart_data).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X("Date:N", sort=None, title="Date"),
+        y=alt.Y("Size (MB):Q", title="Size (MB)"),
+        color=alt.Color("Status:N", scale=color_scale, legend=alt.Legend(title="Status")),
+        tooltip=["Date", "Size (MB)", "Status", "Duration", "Databases", "Delta"],
+    ).properties(height=350)
+
+    st.altair_chart(bars, width="stretch")
+
+with tab_dual:
+    base = alt.Chart(chart_data).encode(
+        x=alt.X("Date:N", sort=None, title="Date"),
+    )
+
+    bars = base.mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3, opacity=0.7).encode(
+        y=alt.Y("Size (MB):Q", title="Size (MB)"),
+        color=alt.Color("Status:N", scale=color_scale, legend=alt.Legend(title="Status")),
+        tooltip=["Date", "Size (MB)", "Status", "Delta"],
+    )
+
+    line = base.mark_line(color="#1a3a5c", strokeWidth=2, point=True).encode(
+        y=alt.Y("Duration (sec):Q", title="Duration (seconds)"),
+        tooltip=["Date", "Duration", "Status"],
+    )
+
+    dual = alt.layer(bars, line).resolve_scale(y="independent").properties(height=350)
+
+    st.altair_chart(dual, width="stretch")
+    st.caption("Bars = backup size (left axis) · Line = duration (right axis)")
 
 with tab_table:
+    table_data = chart_data[["Date", "Status Icon", "Size (MB)", "Delta", "Duration", "Databases", "Files"]].copy()
+    table_data = table_data.rename(columns={"Status Icon": "Status"})
+
     def highlight_backup_status(row):
-        if row["Status"] == "failed":
+        status_text = row["Status"]
+        if "failed" in status_text:
             return ["background-color: #fee2e2"] * len(row)
-        elif row["Status"] == "partial":
+        elif "partial" in status_text:
             return ["background-color: #fef3c7"] * len(row)
         return [""] * len(row)
 
     st.dataframe(
-        chart_data.style.apply(highlight_backup_status, axis=1),
-        use_container_width=True,
+        table_data.style.apply(highlight_backup_status, axis=1),
+        width="stretch",
         hide_index=True,
     )
+
+# ── Failed/partial day details ──────────────────────────
+problem_days = [r for r in chart_rows if r["error_detail"]]
+if problem_days:
+    st.subheader("Issues")
+    for day in problem_days:
+        status_icon = {"partial": "🟠", "failed": "🔴"}.get(day["Status"], "⚪")
+        with st.expander(f"{status_icon} {day['Date']} — {day['Status']}"):
+            st.markdown(day["error_detail"])
+            st.caption(f"Size: {day['Size (MB)']:,} MB · Duration: {day['Duration']} · DBs: {day['Databases']}/8 · Files: {day['Files']}/5")
 
 st.divider()
 
@@ -145,7 +313,7 @@ with ver_col:
             "Time": f"{v['duration_sec']}s",
         })
 
-    st.dataframe(pd.DataFrame(ver_data), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(ver_data), width="stretch", hide_index=True)
 
 with restore_col:
     st.subheader("Restore Tests")

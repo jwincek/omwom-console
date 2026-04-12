@@ -20,19 +20,23 @@ def get_backup_history(days: int = 14):
         is_today = i == 0
 
         status = "success"
+        error_detail = ""
         if i == 5:
             status = "partial"
+            error_detail = "File backup of /var/vmail/ timed out after 600s. Database backups completed. Remote upload skipped for mail_data.tar.gz."
         if i == 11:
             status = "failed"
+            error_detail = "PostgreSQL connection refused — postgresql.service was stopped for maintenance. MariaDB backups completed (3/3). PostgreSQL backups failed (0/5)."
 
         history.append({
             "date": run_time,
             "status": status,
-            "databases": 8 if status != "failed" else 5,
+            "databases": 8 if status != "failed" else 3,
             "files": 5 if status == "success" else (3 if status == "partial" else 0),
             "size_mb": 2847 + (i * 12) - (i * i),
-            "duration_sec": 340 + (i * 5),
+            "duration_sec": 340 + (i * 5) + (120 if status == "partial" else 0),
             "in_progress": is_today and now.hour < 3,
+            "error_detail": error_detail,
         })
     return history
 

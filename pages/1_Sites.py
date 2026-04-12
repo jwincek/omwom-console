@@ -1,8 +1,11 @@
 import re
+import secrets
+import string
 import streamlit as st
 
 from lib.database import log_activity
 from lib.semaphore import get_client
+from lib.modoboa import get_modoboa_client
 from lib.mock_data import get_wordpress_sites, get_odoo_instances, get_mail_domains
 
 st.set_page_config(page_title="Sites - OMWOM Console", page_icon=":satellite:", layout="wide")
@@ -11,9 +14,17 @@ st.title("Managed Sites")
 st.caption("WordPress sites, Odoo instances, and mail domains on the server")
 
 client = get_client()
+modoboa = get_modoboa_client()
 
 if client.mock_mode:
     st.caption("🟠 Running in mock mode — Semaphore not connected")
+if modoboa.mock_mode:
+    st.caption("🟠 Modoboa mock mode — mail API not connected")
+
+
+def generate_password(length=24):
+    chars = string.ascii_letters + string.digits + "!@#$%&*"
+    return "".join(secrets.choice(chars) for _ in range(length))
 
 PHP_VERSIONS = ["8.2", "8.3"]
 
@@ -23,10 +34,14 @@ odoo_instances = get_odoo_instances()
 mail_domains = get_mail_domains()
 
 # Build a lookup: domain → mail accounts
-mail_by_domain = {
-    md["domain"]: md.get("accounts", [])
-    for md in mail_domains
-}
+mail_by_domain = {}
+for md in mail_domains:
+    accts = modoboa.list_accounts(md["domain"])
+    mail_by_domain[md["domain"]] = [
+        {"address": a.get("username", a.get("mailbox", {}).get("full_address", "")),
+         "name": a.get("first_name", "")}
+        for a in accts
+    ]
 
 tab_wp, tab_odoo, tab_mail = st.tabs([
     f"WordPress ({len(wp_sites)})",
@@ -86,6 +101,23 @@ with tab_wp:
                             "wp_action": toggle_action,
                         })
                         st.success(f"Site {toggle_action}d")
+
+                # ── Quick backup ────────────────────────
+                if st.button(
+                    f"Backup {site['db_name']}",
+                    key=f"backup_wp_{site['name']}",
+                ):
+                    log_activity("backup", "backup_triggered",
+                                 f"Quick backup: {site['db_name']} ({site['domain']})")
+                    if client.mock_mode:
+                        st.success(f"Mock: would backup `{site['db_name']}` (local, no upload)")
+                    else:
+                        client.run_task(template_id=12, extra_vars={
+                            "backup_scope": "single",
+                            "backup_database": site["db_name"],
+                            "backup_skip_upload": True,
+                        })
+                        st.success(f"Backup of `{site['db_name']}` triggered")
 
                 # ── PHP version change ──────────────────
                 current_php_idx = PHP_VERSIONS.index(site["php_version"]) if site["php_version"] in PHP_VERSIONS else 0
@@ -246,6 +278,23 @@ with tab_odoo:
                         })
                         st.success(f"Instance {toggle_action} triggered")
 
+                # ── Quick backup ────────────────────────
+                if st.button(
+                    f"Backup {inst['db_name']}",
+                    key=f"backup_odoo_{inst['name']}",
+                ):
+                    log_activity("backup", "backup_triggered",
+                                 f"Quick backup: {inst['db_name']} ({inst['domain']})")
+                    if client.mock_mode:
+                        st.success(f"Mock: would backup `{inst['db_name']}` (local, no upload)")
+                    else:
+                        client.run_task(template_id=12, extra_vars={
+                            "backup_scope": "single",
+                            "backup_database": inst["db_name"],
+                            "backup_skip_upload": True,
+                        })
+                        st.success(f"Backup of `{inst['db_name']}` triggered")
+
             # ── Remove ──────────────────────────────────
             st.divider()
             if st.button(f"Remove {inst['name']}", key=f"remove_odoo_{inst['name']}", type="secondary"):
@@ -318,18 +367,90 @@ with tab_odoo:
 # ── Mail tab ────────────────────────────────────────────
 with tab_mail:
     for domain in mail_domains:
-        with st.expander(f"**{domain['domain']}** — {domain['mailboxes']} mailboxes", expanded=False):
-            st.markdown(f"**Domain:** {domain['domain']}")
-            st.markdown(f"**Mailboxes:** {domain['mailboxes']}")
-            st.markdown("[Open in Modoboa →](https://mail.omwom.com/#/domains/)", unsafe_allow_html=False)
+        accounts = modoboa.list_accounts(domain["domain"])
 
+        with st.expander(f"**{domain['domain']}** — {len(accounts)} accounts", expanded=False):
+            info_col, actions_col = st.columns([3, 2])
+
+            with info_col:
+                st.markdown(f"**Domain:** {domain['domain']}")
+                st.markdown(f"[Open in Modoboa →](https://mail.omwom.com/#/domains/)")
+
+                if accounts:
+                    st.markdown(f"**Accounts** ({len(accounts)})")
+                    for acct in accounts:
+                        role_badge = " *(admin)*" if acct.get("role") == "DomainAdmins" else ""
+                        active_icon = "🟢" if acct.get("is_active", True) else "🔴"
+                        st.caption(
+                            f"{active_icon} `{acct.get('username', acct.get('mailbox', {}).get('full_address', ''))}`"
+                            f" — {acct.get('first_name', '')}{role_badge}"
+                        )
+                else:
+                    st.caption("No email accounts configured")
+
+            with actions_col:
+                # ── Add account ─────────────────────────
+                st.markdown("**Add account**")
+                new_local = st.text_input(
+                    "Address",
+                    placeholder="info",
+                    key=f"new_acct_local_{domain['domain']}",
+                    help=f"Local part — will become name@{domain['domain']}",
+                )
+                new_name = st.text_input(
+                    "Display name",
+                    placeholder="Info",
+                    key=f"new_acct_name_{domain['domain']}",
+                )
+
+                new_email = f"{new_local}@{domain['domain']}" if new_local else ""
+                local_valid = bool(new_local and re.match(r"^[a-z][a-z0-9._-]*$", new_local))
+                already_exists = any(
+                    acct.get("username") == new_email or
+                    acct.get("mailbox", {}).get("full_address") == new_email
+                    for acct in accounts
+                )
+
+                if new_local and not local_valid:
+                    st.warning("Must start with a letter. Lowercase, numbers, dots, hyphens allowed.")
+                if new_local and already_exists:
+                    st.warning(f"`{new_email}` already exists.")
+
+                can_create = local_valid and not already_exists and bool(new_local)
+
+                if st.button(
+                    f"Create {new_email}" if new_email else "Create account",
+                    type="primary",
+                    disabled=not can_create,
+                    key=f"btn_create_acct_{domain['domain']}",
+                ):
+                    password = generate_password()
+                    log_activity("mail", "account_created", f"Created {new_email}")
+
+                    if modoboa.mock_mode:
+                        st.success(f"Mock: would create `{new_email}`")
+                    else:
+                        modoboa.create_account(
+                            email=new_email,
+                            password=password,
+                            first_name=new_name or new_local.title(),
+                        )
+                        st.success(f"Account `{new_email}` created")
+
+                    with st.container(border=True):
+                        st.markdown(f"**Credentials for `{new_email}`**")
+                        st.code(f"Email:    {new_email}\nPassword: {password}", language="text")
+                        st.caption("Save these credentials — the password cannot be retrieved later.")
+
+            # ── Remove domain ───────────────────────────
+            st.divider()
             if st.button(f"Remove {domain['domain']}", key=f"remove_mail_{domain['domain']}", type="secondary"):
                 st.session_state[f"_confirm_remove_mail_{domain['domain']}"] = True
 
             if st.session_state.get(f"_confirm_remove_mail_{domain['domain']}"):
                 st.warning(
                     f"This will remove **{domain['domain']}** from Modoboa, "
-                    f"including all mailboxes and mail data. "
+                    f"including all {len(accounts)} accounts and mail data. "
                     f"Mail data will be archived before removal."
                 )
                 mc1, mc2 = st.columns(2)
@@ -368,22 +489,46 @@ with tab_mail:
         if mail_domain and m_domain_taken:
             st.warning(f"Domain `{mail_domain}` is already configured.")
 
+        create_defaults = st.checkbox(
+            "Create default mailboxes (postmaster, info)",
+            value=True,
+            key="add_mail_create_defaults",
+        )
+
         can_add_mail = m_domain_valid and not m_domain_taken
 
         if st.button("Add mail domain", type="primary", disabled=not can_add_mail, key="btn_add_mail"):
             log_activity("mail", "domain_added", f"Added {mail_domain}")
+
             if client.mock_mode:
                 st.success(f"Mock: would trigger `mail-add-domain.yml` with `mail_domain={mail_domain}`")
-                st.info(
-                    f"After adding, configure DNS records for {mail_domain}:\n"
-                    f"- MX → mail.omwom.com (priority 10)\n"
-                    f"- TXT (SPF) → v=spf1 mx a:mail.omwom.com ~all\n"
-                    f"- TXT (DMARC) → v=DMARC1; p=quarantine\n"
-                    f"- TXT (DKIM) → get from Modoboa admin panel\n\n"
-                    f"Then create mailboxes at mail.omwom.com."
-                )
             else:
                 task = client.run_task(template_id=5, extra_vars={
                     "mail_domain": mail_domain,
                 })
                 st.success(f"Mail domain addition triggered (task #{task['id']})")
+
+            if create_defaults:
+                default_pass = generate_password()
+                if modoboa.mock_mode:
+                    st.info(f"Mock: would create `postmaster@{mail_domain}` and `info@{mail_domain}`")
+                else:
+                    modoboa.create_default_accounts(mail_domain, default_pass)
+                    st.success(f"Default mailboxes created for {mail_domain}")
+
+                with st.container(border=True):
+                    st.markdown(f"**Default account credentials for `{mail_domain}`**")
+                    st.code(
+                        f"postmaster@{mail_domain}  /  {default_pass}\n"
+                        f"info@{mail_domain}        /  {default_pass}",
+                        language="text",
+                    )
+                    st.caption("Both accounts share this initial password. Change them after first login.")
+
+            st.info(
+                f"Configure DNS records for {mail_domain}:\n"
+                f"- MX → mail.omwom.com (priority 10)\n"
+                f"- TXT (SPF) → v=spf1 mx a:mail.omwom.com ~all\n"
+                f"- TXT (DMARC) → v=DMARC1; p=quarantine\n"
+                f"- TXT (DKIM) → get from Modoboa admin panel"
+            )

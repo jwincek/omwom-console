@@ -170,7 +170,7 @@ if "SSL Certificates" in sections:
 
         st.dataframe(
             cert_df.style.apply(highlight_cert, axis=1),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -218,7 +218,7 @@ for t in tasks:
     })
 
 if task_data:
-    st.dataframe(pd.DataFrame(task_data), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(task_data), width="stretch", hide_index=True)
 
 # ── Sidebar ─────────────────────────────────────────────
 with st.sidebar:

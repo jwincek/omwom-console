@@ -59,23 +59,33 @@ class SemaphoreClient:
         return self.config.mock_mode
 
     def _get(self, path: str) -> dict | list:
-        resp = requests.get(
-            f"{self.base_url}{path}",
-            headers=self.headers,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = requests.get(
+                f"{self.base_url}{path}",
+                headers=self.headers,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.HTTPError as e:
+            raise RuntimeError(f"Semaphore API error: {e.response.status_code} on {path}") from None
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Semaphore connection error on {path}: {type(e).__name__}") from None
 
     def _post(self, path: str, data: dict) -> dict:
-        resp = requests.post(
-            f"{self.base_url}{path}",
-            headers=self.headers,
-            json=data,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = requests.post(
+                f"{self.base_url}{path}",
+                headers=self.headers,
+                json=data,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.HTTPError as e:
+            raise RuntimeError(f"Semaphore API error: {e.response.status_code} on {path}") from None
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Semaphore connection error on {path}: {type(e).__name__}") from None
 
     def ping(self) -> bool:
         try:
@@ -151,6 +161,8 @@ class MockSemaphoreClient:
             {"id": 9, "name": "WordPress PHP Change", "playbook": "wordpress-php-change.yml"},
             {"id": 10, "name": "WordPress Toggle", "playbook": "wordpress-toggle.yml"},
             {"id": 11, "name": "Odoo Toggle", "playbook": "odoo-toggle.yml"},
+            {"id": 12, "name": "Run Backup", "playbook": "backup-run.yml"},
+            {"id": 13, "name": "Verify Backups", "playbook": "backup-verify.yml"},
         ]
 
     def get_template(self, template_id: int) -> dict:

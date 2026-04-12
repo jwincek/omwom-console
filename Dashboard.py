@@ -43,30 +43,30 @@ alerts = []
 for cert in certs:
     days_left = (cert["expiry"] - datetime.now(timezone.utc)).days
     if days_left <= 7:
-        alerts.append(("error", f"SSL certificate for **{cert['domain']}** expires in {days_left} days"))
+        alerts.append(("error", f"SSL certificate for **{cert['domain']}** expires in {days_left} days — [Check DNS](/DNS)"))
     elif days_left <= 14:
-        alerts.append(("warning", f"SSL certificate for **{cert['domain']}** expires in {days_left} days"))
+        alerts.append(("warning", f"SSL certificate for **{cert['domain']}** expires in {days_left} days — [Check DNS](/DNS)"))
 
 hours_since_backup = (datetime.now(timezone.utc) - backup["last_run"]).total_seconds() / 3600
 if backup["status"] != "success":
-    alerts.append(("error", f"Last backup **{backup['status']}** ({hours_since_backup:.0f}h ago)"))
+    alerts.append(("error", f"Last backup **{backup['status']}** ({hours_since_backup:.0f}h ago) — [View Backups](/Backups)"))
 elif hours_since_backup > 26:
-    alerts.append(("warning", f"Last backup was {hours_since_backup:.0f} hours ago (expected within 24h)"))
+    alerts.append(("warning", f"Last backup was {hours_since_backup:.0f} hours ago — [View Backups](/Backups)"))
 
 if backup["verify_status"] != "passed":
-    alerts.append(("error", f"Backup verification **{backup['verify_status']}**"))
+    alerts.append(("error", f"Backup verification **{backup['verify_status']}** — [View Backups](/Backups)"))
 
 down_services = [s for s in services if s["status"] != "running"]
 for svc in down_services:
-    alerts.append(("error", f"Service **{svc['name']}** is {svc['status']}"))
+    alerts.append(("error", f"Service **{svc['name']}** is {svc['status']} — [Run Health Check](/Health)"))
 
 down_wp = [s for s in wp_sites if s["status"] != "running"]
 for site in down_wp:
-    alerts.append(("warning", f"WordPress site **{site['domain']}** is {site['status']}"))
+    alerts.append(("warning", f"WordPress site **{site['domain']}** is {site['status']} — [Manage Sites](/Sites)"))
 
 down_odoo = [i for i in odoo_instances if i["status"] != "running"]
 for inst in down_odoo:
-    alerts.append(("warning", f"Odoo instance **{inst['domain']}** is {inst['status']}"))
+    alerts.append(("warning", f"Odoo instance **{inst['domain']}** is {inst['status']} — [Manage Sites](/Sites)"))
 
 if alerts:
     error_alerts = [a for a in alerts if a[0] == "error"]
@@ -105,33 +105,33 @@ st.divider()
 left, right = st.columns(2)
 
 with left:
-    st.subheader("WordPress Sites")
+    st.markdown("### [WordPress Sites](/Sites)")
     for site in wp_sites:
         status_icon = "🟢" if site["status"] == "running" else "🔴"
         with st.container(border=True):
             c1, c2, c3 = st.columns([3, 2, 1])
-            c1.markdown(f"**{site['domain']}**")
+            c1.markdown(f"[**{site['domain']}**](https://{site['domain']})")
             c2.caption(f"PHP {site['php_version']} / WP {site['wp_version']}")
-            c3.markdown(f"{status_icon} {site['status']}")
+            c3.markdown(f"{status_icon} [{site['status']}](https://{site['domain']}/wp-admin)")
 
-    st.subheader("Odoo Instances")
+    st.markdown("### [Odoo Instances](/Sites)")
     for inst in odoo_instances:
         status_icon = "🟢" if inst["status"] == "running" else "🔴"
         with st.container(border=True):
             c1, c2, c3 = st.columns([3, 2, 1])
-            c1.markdown(f"**{inst['domain']}**")
+            c1.markdown(f"[**{inst['domain']}**](https://{inst['domain']})")
             c2.caption(f"Odoo {inst['version']} / port {inst['port']}")
             c3.markdown(f"{status_icon} {inst['status']}")
 
 with right:
-    st.subheader("Mail Domains")
+    st.markdown("### [Mail Domains](/Sites)")
     for domain in mail_domains:
         with st.container(border=True):
             c1, c2 = st.columns([3, 1])
-            c1.markdown(f"**{domain['domain']}**")
+            c1.markdown(f"[**{domain['domain']}**](https://mail.omwom.com/#/domains/)")
             c2.caption(f"{domain['mailboxes']} mailboxes")
 
-    st.subheader("Backup Status")
+    st.markdown("### [Backup Status](/Backups)")
     backup_icon = "🟢" if backup["status"] == "success" else "🔴"
     verify_icon = "🟢" if backup["verify_status"] == "passed" else "🔴"
 
@@ -154,7 +154,7 @@ with right:
 st.divider()
 
 # ── SSL certificates ───────────────────────────────────
-st.subheader("SSL Certificates")
+st.markdown("### [SSL Certificates](/DNS)")
 
 cert_data = []
 for cert in certs:
@@ -179,14 +179,14 @@ def highlight_cert_status(row):
 
 st.dataframe(
     cert_df.style.apply(highlight_cert_status, axis=1),
-    use_container_width=True,
+    width="stretch",
     hide_index=True,
 )
 
 st.divider()
 
 # ── Core services ───────────────────────────────────────
-st.subheader("Core Services")
+st.markdown("### [Core Services](/Health)")
 
 svc_cols = st.columns(len(services))
 for i, svc in enumerate(services):
@@ -204,17 +204,15 @@ if activity:
     activity_df["timestamp"] = pd.to_datetime(activity_df["timestamp"]).dt.strftime(
         "%Y-%m-%d %H:%M"
     )
-    st.dataframe(activity_df, use_container_width=True, hide_index=True)
+    st.dataframe(activity_df, width="stretch", hide_index=True)
 else:
     st.info("No activity recorded yet. Actions you take in the console will appear here.")
 
 # ── Sidebar ─────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### OMWOM Console")
-    st.caption("Server: omwom.com")
-    st.caption("Semaphore: ops.omwom.com")
-    st.caption("Mail: mail.omwom.com")
-    st.caption("Status: status.omwom.com")
+    st.markdown("[Semaphore](https://ops.omwom.com) · [Mail](https://mail.omwom.com) · [Status](https://status.omwom.com)")
+    st.caption("[Portainer](https://docker.omwom.com) · [Server](https://omwom.com)")
 
     st.divider()
 
@@ -223,11 +221,11 @@ with st.sidebar:
     svc_running = sum(1 for s in services if s["status"] == "running")
     certs_ok = sum(1 for c in certs if c["status"] == "ok")
 
-    st.markdown(f"**{wp_running}/{len(wp_sites)}** WordPress sites up")
-    st.markdown(f"**{odoo_running}/{len(odoo_instances)}** Odoo instances up")
-    st.markdown(f"**{len(mail_domains)}** mail domains")
-    st.markdown(f"**{svc_running}/{len(services)}** core services up")
-    st.markdown(f"**{certs_ok}/{len(certs)}** SSL certs OK")
+    st.markdown(f"[**{wp_running}/{len(wp_sites)}** WordPress sites up](/Sites)")
+    st.markdown(f"[**{odoo_running}/{len(odoo_instances)}** Odoo instances up](/Sites)")
+    st.markdown(f"[**{len(mail_domains)}** mail domains](/Sites)")
+    st.markdown(f"[**{svc_running}/{len(services)}** core services up](/Health)")
+    st.markdown(f"[**{certs_ok}/{len(certs)}** SSL certs OK](/DNS)")
 
     if alerts:
         st.divider()

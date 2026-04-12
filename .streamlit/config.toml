@@ -1,5 +1,7 @@
 [server]
 headless = true
+maxUploadSize = 500
+enableXsrfProtection = true
 
 [theme]
 primaryColor = "#b08a2a"

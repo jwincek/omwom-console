@@ -109,9 +109,19 @@ def extract_backup_info(metadata: dict) -> dict:
     }
 
 
+def _has_unsafe_paths(tar: tarfile.TarFile) -> bool:
+    for member in tar.getmembers():
+        if member.name.startswith(("/", "..")) or "/../" in member.name or member.name.endswith("/.."):
+            return True
+    return False
+
+
 def parse_backup_file(file_bytes: bytes) -> dict | None:
     try:
         with tarfile.open(fileobj=BytesIO(file_bytes), mode="r:gz") as tar:
+            if _has_unsafe_paths(tar):
+                return None
+
             meta_member = find_metadata_member(tar)
             if meta_member is None:
                 return None
