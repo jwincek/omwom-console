@@ -15,6 +15,14 @@ sudo chown -R consoleapp:consoleapp /opt/omwom-console
 
 ## 3. Transfer application code
 
+### Option A: Git clone (recommended)
+
+```bash
+sudo -u consoleapp git clone https://github.com/jwincek/omwom-console.git /opt/omwom-console/app
+```
+
+### Option B: SCP
+
 ```bash
 # From local machine
 scp -P 2222 -r omwom-console/ sysadmin@YOUR_VPS_IP:/tmp/omwom-console
@@ -40,16 +48,29 @@ sudo cp /opt/omwom-console/app/.env.example /opt/omwom-console/.env
 sudo nano /opt/omwom-console/.env
 ```
 
-Set the Semaphore API token. To generate one in Semaphore:
+Set the Semaphore and Modoboa API tokens:
 
+**Semaphore token:**
 1. Log in to ops.omwom.com
 2. Go to your user settings (top-right menu)
 3. Under "API Tokens", create a new token
 4. Copy the token into the `.env` file
 
+**Modoboa token:**
+1. Log in to mail.omwom.com
+2. Go to admin settings → API tokens
+3. Create a new token
+4. Copy the token into the `.env` file
+
 ```bash
 sudo chmod 600 /opt/omwom-console/.env
 sudo chown consoleapp:consoleapp /opt/omwom-console/.env
+```
+
+Symlink so the app can find it:
+
+```bash
+sudo -u consoleapp ln -s /opt/omwom-console/.env /opt/omwom-console/app/.env
 ```
 
 ## 6. Install systemd service
@@ -109,6 +130,21 @@ curl -u opsadmin:YOUR_PASSWORD https://console.omwom.com
 Visit `https://console.omwom.com` in your browser and log in.
 
 ## Updating the console
+
+### Option A: Git pull (recommended)
+
+```bash
+sudo -u consoleapp git -C /opt/omwom-console/app pull
+sudo -u consoleapp /opt/omwom-console/venv/bin/pip install -r /opt/omwom-console/app/requirements.txt
+sudo systemctl restart omwom-console
+```
+
+### Option B: Via Semaphore
+
+Create a task template in Semaphore pointing to `console-deploy.yml` (included in `deploy/`).
+Run the template from ops.omwom.com — it handles git pull, pip install, and service restart.
+
+### Option C: SCP
 
 ```bash
 # Transfer new code

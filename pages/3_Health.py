@@ -198,6 +198,59 @@ with st.expander("Raw playbook output"):
     raw_text = "\n".join(line.get("output", "") for line in output_lines)
     st.code(raw_text, language="text")
 
+# ── Installed runtimes ──────────────────────────────────
+st.divider()
+st.subheader("Installed Runtimes")
+
+from lib.mock_data import get_installed_runtimes
+runtimes = get_installed_runtimes()
+
+rt_php, rt_python, rt_db, rt_other = st.tabs(["PHP", "Python", "Databases", "Other"])
+
+with rt_php:
+    for php in runtimes["php"]:
+        site_count = len(php["sites"])
+        status_icon = "🟢" if php["status"] == "active" else "⚪"
+        label = f"{status_icon} **PHP {php['version']}** — {site_count} site{'s' if site_count != 1 else ''}"
+
+        with st.container(border=True):
+            c1, c2 = st.columns([1, 2])
+            c1.markdown(label)
+            c1.caption(f"Package: `{php['package']}`")
+            c1.caption(f"Status: {php['status']}")
+
+            if php["sites"]:
+                c2.caption(f"Sites: {', '.join(f'`{s}`' for s in php['sites'])}")
+            else:
+                c2.caption("No sites using this version")
+            c2.caption(f"Extensions: {', '.join(php['extensions'])}")
+
+with rt_python:
+    for py in runtimes["python"]:
+        with st.container(border=True):
+            c1, c2 = st.columns([1, 2])
+            c1.markdown(f"**Python {py['version']}**")
+            c1.caption(f"`{py['path']}`")
+
+            c2.caption(f"Role: {py['role']}")
+            c2.caption(f"Used by: {', '.join(py['used_by'])}")
+            if "venv" in py:
+                c2.caption(f"Virtualenv: `{py['venv']}`")
+
+with rt_db:
+    for db in runtimes["databases"]:
+        with st.container(border=True):
+            c1, c2 = st.columns([1, 2])
+            c1.markdown(f"**{db['name']} {db['version']}**")
+            c1.caption(f"Port: {db['port']}")
+            c2.caption(f"Databases ({len(db['databases'])}): {', '.join(f'`{d}`' for d in db['databases'])}")
+
+with rt_other:
+    for tool in runtimes["other"]:
+        used_by = f" — {tool['used_by']}" if "used_by" in tool else ""
+        path = f" (`{tool['path']}`)" if "path" in tool else ""
+        st.caption(f"**{tool['name']}** {tool['version']}{path}{used_by}")
+
 # ── Task history ────────────────────────────────────────
 st.divider()
 st.subheader("Recent Tasks")

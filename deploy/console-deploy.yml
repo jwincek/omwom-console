@@ -1,0 +1,49 @@
+# /opt/ansible-omwom/playbooks/console-deploy.yml
+#
+# Deploy or update the OMWOM Console from its Git repository.
+# Run via Semaphore — no extra vars needed.
+---
+- hosts: omwom
+  become: true
+
+  vars:
+    console_repo: "https://github.com/jwincek/omwom-console.git"
+    console_branch: main
+    console_dir: /opt/omwom-console/app
+    console_venv: /opt/omwom-console/venv
+    console_user: consoleapp
+    console_service: omwom-console
+
+  tasks:
+    - name: Pull latest code
+      git:
+        repo: "{{ console_repo }}"
+        dest: "{{ console_dir }}"
+        version: "{{ console_branch }}"
+        force: yes
+      become_user: "{{ console_user }}"
+      register: git_result
+
+    - name: Install/update Python dependencies
+      pip:
+        requirements: "{{ console_dir }}/requirements.txt"
+        virtualenv: "{{ console_venv }}"
+      become_user: "{{ console_user }}"
+      when: git_result.changed
+
+    - name: Restart console service
+      systemd:
+        name: "{{ console_service }}"
+        state: restarted
+      when: git_result.changed
+
+    - name: Display result
+      debug:
+        msg: |
+          {% if git_result.changed %}
+          Console updated to {{ git_result.after }}
+          Service restarted.
+          {% else %}
+          Already up to date ({{ git_result.after }}).
+          No restart needed.
+          {% endif %}

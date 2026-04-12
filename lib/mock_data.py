@@ -144,3 +144,74 @@ def get_server_stats():
         "disk_total_gb": 240,
         "load_average": "1.24, 0.98, 0.87",
     }
+
+
+def get_installed_runtimes():
+    return {
+        "php": [
+            {
+                "version": "8.3",
+                "package": "php8.3-fpm",
+                "status": "active",
+                "sites": ["slowbread", "wp2", "wp3"],
+                "extensions": [
+                    "curl", "gd", "mbstring", "mysql", "xml", "zip",
+                    "intl", "soap", "bcmath", "imagick", "opcache",
+                ],
+            },
+            {
+                "version": "8.2",
+                "package": "php8.2-fpm",
+                "status": "installed",
+                "sites": [],
+                "extensions": [
+                    "curl", "gd", "mbstring", "mysql", "xml", "zip",
+                    "intl", "soap", "bcmath", "imagick", "opcache",
+                ],
+            },
+        ],
+        "python": [
+            {
+                "version": "3.12",
+                "path": "/usr/bin/python3",
+                "role": "system",
+                "used_by": ["Ansible", "Semaphore", "backup scripts", "inventory_manager.py"],
+            },
+            {
+                "version": "3.10",
+                "path": "/usr/bin/python3.10",
+                "role": "Odoo runtime",
+                "used_by": ["odoo1", "odoo2"],
+                "venv": "/opt/odoo/venv",
+            },
+            {
+                "version": "3.12",
+                "path": "/opt/modoboa/env/bin/python",
+                "role": "Modoboa runtime",
+                "used_by": ["Modoboa"],
+                "venv": "/opt/modoboa/env",
+            },
+            {
+                "version": "3.13",
+                "path": "/opt/oilregion-hub/venv/bin/python",
+                "role": "Artist hub runtime",
+                "used_by": ["oilregion-hub"],
+                "venv": "/opt/oilregion-hub/venv",
+            },
+        ],
+        "databases": [
+            {"name": "MariaDB", "version": "11.4.10", "port": 3306,
+             "databases": ["slowbread_db", "wp2_db", "wp3_db"]},
+            {"name": "PostgreSQL", "version": "16.6", "port": 5432,
+             "databases": ["odoo1_db", "odoo2_db", "semaphore", "modoboa", "oilregion_db"]},
+        ],
+        "other": [
+            {"name": "Nginx", "version": "1.27.4"},
+            {"name": "Node.js", "version": "20.11.1", "used_by": "Uptime Kuma (Docker)"},
+            {"name": "Odoo", "version": "17.0", "path": "/opt/odoo/odoo-server"},
+            {"name": "WP-CLI", "version": "2.11.0", "path": "/usr/local/bin/wp"},
+            {"name": "Certbot", "version": "3.1.0"},
+            {"name": "Docker", "version": "27.5.1"},
+            {"name": "rclone", "version": "1.68.2"},
+        ],
+    }
