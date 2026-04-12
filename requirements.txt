@@ -1,0 +1,5 @@
+streamlit>=1.45
+sqlalchemy>=2.0
+pandas>=2.0
+requests>=2.32
+dnspython>=2.7

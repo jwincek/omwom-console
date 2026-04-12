@@ -1,0 +1,26 @@
+[Unit]
+Description=OMWOM Console (Streamlit)
+After=network.target
+
+[Service]
+Type=simple
+User=consoleapp
+Group=consoleapp
+WorkingDirectory=/opt/omwom-console/app
+Environment="PATH=/opt/omwom-console/venv/bin:/usr/bin"
+EnvironmentFile=/opt/omwom-console/.env
+ExecStart=/opt/omwom-console/venv/bin/python -m streamlit run Dashboard.py \
+    --server.port 8073 \
+    --server.address 127.0.0.1 \
+    --server.headless true \
+    --browser.gatherUsageStats false
+Restart=on-failure
+RestartSec=5
+
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/omwom-console/app
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
