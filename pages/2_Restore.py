@@ -6,24 +6,24 @@ from pathlib import Path
 from lib.database import log_activity
 from lib.softaculous import parse_backup_file
 from lib.semaphore import get_client
+from lib.inventory import get_wordpress_sites
 
 st.set_page_config(page_title="Restore - OMWOM Console", page_icon=":satellite:")
 
 st.title("WordPress Restore")
-st.caption("Restore a WordPress site from a Softaculous backup archive")
+st.caption("Restore a WordPress site from backup")
 
 client = get_client()
 
 # ── Step 1: Select backup source ────────────────────────
 source_mode = st.radio(
     "Backup source",
-    ["Upload file (< 500 MB)", "Server path (any size)"],
+    ["Upload Softaculous (< 500 MB)", "Softaculous server path", "Internal backup"],
     horizontal=True,
     key="restore_source_mode",
-    help="Use 'Server path' for large backups. SCP the file to /srv/restore-staging/ first.",
 )
 
-if source_mode == "Upload file (< 500 MB)":
+if source_mode == "Upload Softaculous (< 500 MB)":
     uploaded = st.file_uploader(
         "Softaculous backup (.tar.gz)",
         type=["gz"],
@@ -46,9 +46,9 @@ if source_mode == "Upload file (< 500 MB)":
             st.session_state._backup_path = None
             st.session_state.pop("_restore_done", None)
 
-else:
+elif source_mode == "Softaculous server path":
     st.caption(
-        "For large backups, SCP the file to the server first, then enter the path here."
+        "For large Softaculous backups, SCP the file to the server first, then enter the path here."
     )
     st.code("scp -P 2222 backup.tar.gz sysadmin@YOUR_VPS_IP:/srv/restore-staging/", language="bash")
 
@@ -111,13 +111,108 @@ else:
                 )
                 st.stop()
             else:
-                # In production, trigger a Semaphore task to parse the metadata
-                # and return the result, or SSH to the server and read it directly
                 st.info(f"Would parse metadata from `{server_path}` on the server")
                 st.stop()
 
+elif source_mode == "Internal backup":
+    st.caption("Restore an existing site from a backup created by `backup_manager.py`.")
+
+    wp_sites = get_wordpress_sites()
+
+    if not wp_sites:
+        st.warning("No WordPress sites found in inventory.")
+        st.stop()
+
+    site_options = {f"{s['name']} ({s['domain']})": s for s in wp_sites}
+    selected_label = st.selectbox("Site to restore", list(site_options.keys()), key="internal_site")
+    selected_site = site_options[selected_label]
+
+    backup_dir = f"/var/backups/sites/wordpress/{selected_site['name']}"
+    backup_dir_path = Path(backup_dir)
+
+    if backup_dir_path.exists():
+        archives = sorted(backup_dir_path.glob("*.tar.gz"), reverse=True)
+    else:
+        archives = []
+
+    if client.mock_mode and not archives:
+        st.info(
+            f"Mock mode: no local backup files at `{backup_dir}`. "
+            f"On the server, this would list available backup archives for **{selected_site['name']}**."
+        )
+
+        if st.button("Simulate internal restore", key="btn_mock_internal"):
+            log_activity("wordpress", "internal_restore_triggered",
+                         f"Simulated restore of {selected_site['name']} from internal backup")
+
+            st.session_state._restore_done = {
+                "wp_name": selected_site["name"],
+                "wp_domain": selected_site["domain"],
+                "wp_php": selected_site.get("php_version", "8.3"),
+                "old_domain": selected_site["domain"],
+                "site_name": selected_site["name"],
+                "file_name": f"{selected_site['name']}_20260413_020003.tar.gz",
+                "file_size_mb": 0,
+                "backup_path": f"{backup_dir}/{selected_site['name']}_20260413_020003.tar.gz",
+                "restore_type": "internal",
+            }
+            st.rerun()
+
+    elif archives:
+        archive_options = {}
+        for a in archives[:20]:
+            size_mb = a.stat().st_size / 1024 / 1024
+            mtime = datetime.fromtimestamp(a.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+            label = f"{a.name} ({size_mb:.1f} MB, {mtime})"
+            archive_options[label] = a
+
+        from datetime import datetime
+
+        selected_archive_label = st.selectbox(
+            f"Available backups ({len(archives)} found)",
+            list(archive_options.keys()),
+            key="internal_archive",
+        )
+        selected_archive = archive_options[selected_archive_label]
+
+        new_domain = st.text_input(
+            "New domain (leave blank to keep current)",
+            placeholder=selected_site["domain"],
+            key="internal_new_domain",
+        )
+
+        if st.button("Restore from backup", type="primary", key="btn_internal_restore"):
+            archive_path = str(selected_archive)
+            size_mb = selected_archive.stat().st_size / 1024 / 1024
+
+            extra_vars = {
+                "wp_name": selected_site["name"],
+                "backup_archive": archive_path,
+            }
+            if new_domain and new_domain != selected_site["domain"]:
+                extra_vars["wp_domain_new"] = new_domain
+
+            log_activity("wordpress", "internal_restore_triggered",
+                         f"Restoring {selected_site['name']} from {selected_archive.name}"
+                         + (f" with domain change → {new_domain}" if new_domain else ""))
+
+            st.session_state._restore_done = {
+                "wp_name": selected_site["name"],
+                "wp_domain": new_domain or selected_site["domain"],
+                "wp_php": selected_site.get("php_version", "8.3"),
+                "old_domain": selected_site["domain"],
+                "site_name": selected_site["name"],
+                "file_name": selected_archive.name,
+                "file_size_mb": size_mb,
+                "backup_path": archive_path,
+                "restore_type": "internal",
+            }
+            st.rerun()
+    else:
+        st.warning(f"No backup archives found at `{backup_dir}`. Run a backup first.")
+
 # ── Show instructions if no backup parsed yet ───────────
-if "_backup_info" not in st.session_state:
+if "_backup_info" not in st.session_state and "_restore_done" not in st.session_state:
     st.divider()
     st.markdown("The restore process will:")
     st.markdown(
@@ -175,32 +270,42 @@ if "_restore_done" in st.session_state:
             st.markdown(f"- Database: `{p['wp_name']}_db`")
 
     backup_path = p.get("backup_path") or f"/srv/restore-staging/{p['file_name']}"
+    is_internal = p.get("restore_type") == "internal"
 
     with st.status("Restoring WordPress site...", expanded=True) as status:
-        st.write(f"📦 Backup: {p['file_name']} ({p['file_size_mb']:.1f} MB)")
-        st.write(f"🌐 Source: {p['old_domain']} → {p['wp_domain']}")
+        size_label = f"{p['file_size_mb']:.1f} MB" if p['file_size_mb'] > 0 else "size unknown"
+        st.write(f"📦 Backup: {p['file_name']} ({size_label})")
+        domain_msg = "Same domain" if p["old_domain"] == p["wp_domain"] else f"Domain: {p['old_domain']} → {p['wp_domain']}"
+        st.write(f"🌐 {domain_msg}")
         st.write(f"🔧 Site ID: {p['wp_name']}, PHP {p['wp_php']}")
+        st.write(f"📋 Type: {'Internal backup' if is_internal else 'Softaculous backup'}")
         st.write("")
-        if client.mock_mode:
-            st.write("Mock: would call Semaphore API with these parameters:")
+
+        if is_internal:
+            playbook = "wordpress-restore-internal.yml"
+            extra_vars = {
+                "wp_name": p["wp_name"],
+                "backup_archive": backup_path,
+            }
+            if p["old_domain"] != p["wp_domain"]:
+                extra_vars["wp_domain_new"] = p["wp_domain"]
         else:
-            st.write("Triggering `wordpress-restore.yml` via Semaphore:")
-        st.code(
-            f"wp_name: {p['wp_name']}\n"
-            f"wp_domain: {p['wp_domain']}\n"
-            f"wp_php: {p['wp_php']}\n"
-            f"backup_file: {backup_path}",
-            language="yaml",
-        )
-        if client.mock_mode:
-            status.update(label="Restore simulated (mock mode)", state="complete")
-        else:
-            task = client.run_playbook("wordpress-restore.yml", extra_vars={
+            playbook = "wordpress-restore.yml"
+            extra_vars = {
                 "wp_name": p["wp_name"],
                 "wp_domain": p["wp_domain"],
                 "wp_php": p["wp_php"],
                 "backup_file": backup_path,
-            })
+            }
+
+        if client.mock_mode:
+            st.write(f"Mock: would call Semaphore → `{playbook}`:")
+            st.code("\n".join(f"{k}: {v}" for k, v in extra_vars.items()), language="yaml")
+            status.update(label="Restore simulated (mock mode)", state="complete")
+        else:
+            st.write(f"Triggering `{playbook}` via Semaphore:")
+            st.code("\n".join(f"{k}: {v}" for k, v in extra_vars.items()), language="yaml")
+            task = client.run_playbook(playbook, extra_vars=extra_vars)
             st.write(f"Semaphore task #{task['id']} started")
             result = client.wait_for_task(task["id"])
             if result["status"] == "success":
