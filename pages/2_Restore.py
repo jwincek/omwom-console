@@ -195,7 +195,7 @@ if "_restore_done" in st.session_state:
         if client.mock_mode:
             status.update(label="Restore simulated (mock mode)", state="complete")
         else:
-            task = client.run_task(template_id=8, extra_vars={
+            task = client.run_playbook("wordpress-restore.yml", extra_vars={
                 "wp_name": p["wp_name"],
                 "wp_domain": p["wp_domain"],
                 "wp_php": p["wp_php"],

@@ -27,11 +27,11 @@ if run_check:
     with st.status("Running health check...", expanded=True) as status:
         if client.mock_mode:
             st.write("Simulating Semaphore task: `health.yml`")
-            task = client.run_task(template_id=7)
+            task = client.run_playbook("health.yml")
             task = client.wait_for_task(task["id"])
         else:
             st.write("Triggering Semaphore task: `health.yml`")
-            task = client.run_task(template_id=7)
+            task = client.run_playbook("health.yml")
             task = client.wait_for_task(task["id"])
 
         if task["status"] == "success":

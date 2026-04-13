@@ -116,6 +116,19 @@ class SemaphoreClient:
 
         return self._post(path, payload)
 
+    def find_template_by_playbook(self, playbook: str) -> dict | None:
+        templates = self.get_templates()
+        for t in templates:
+            if t.get("playbook") == playbook:
+                return t
+        return None
+
+    def run_playbook(self, playbook: str, extra_vars: dict | None = None) -> dict:
+        template = self.find_template_by_playbook(playbook)
+        if template is None:
+            raise RuntimeError(f"No Semaphore template found for playbook: {playbook}")
+        return self.run_task(template["id"], extra_vars=extra_vars)
+
     def get_task(self, task_id: int) -> dict:
         path = f"/project/{self.config.project_id}/tasks/{task_id}"
         return self._get(path)
@@ -176,6 +189,18 @@ class MockSemaphoreClient:
             "status": "waiting",
             "created": datetime.now(timezone.utc).isoformat(),
         }
+
+    def find_template_by_playbook(self, playbook: str) -> dict | None:
+        for t in self.get_templates():
+            if t.get("playbook") == playbook:
+                return t
+        return None
+
+    def run_playbook(self, playbook: str, extra_vars: dict | None = None) -> dict:
+        template = self.find_template_by_playbook(playbook)
+        if template is None:
+            raise RuntimeError(f"No Semaphore template found for playbook: {playbook}")
+        return self.run_task(template["id"], extra_vars=extra_vars)
 
     def get_task(self, task_id: int) -> dict:
         return {

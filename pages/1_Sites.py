@@ -94,7 +94,7 @@ with tab_wp:
                             f"with `wp_action={toggle_action}`"
                         )
                     else:
-                        client.run_task(template_id=10, extra_vars={
+                        client.run_playbook("wordpress-toggle.yml", extra_vars={
                             "wp_name": site["name"],
                             "wp_domain": site["domain"],
                             "wp_php": site["php_version"],
@@ -112,7 +112,7 @@ with tab_wp:
                     if client.mock_mode:
                         st.success(f"Mock: would backup `{site['db_name']}` (local, no upload)")
                     else:
-                        client.run_task(template_id=12, extra_vars={
+                        client.run_playbook("backup-run.yml", extra_vars={
                             "backup_scope": "single",
                             "backup_database": site["db_name"],
                             "backup_skip_upload": True,
@@ -147,7 +147,7 @@ with tab_wp:
                                     f"({site['php_version']} → {new_php})"
                                 )
                             else:
-                                client.run_task(template_id=9, extra_vars={
+                                client.run_playbook("wordpress-php-change.yml", extra_vars={
                                     "wp_name": site["name"],
                                     "wp_domain": site["domain"],
                                     "wp_php_old": site["php_version"],
@@ -175,7 +175,7 @@ with tab_wp:
                     if client.mock_mode:
                         st.info("Mock: would trigger `wordpress-remove.yml`")
                     else:
-                        client.run_task(template_id=2, extra_vars={
+                        client.run_playbook("wordpress-remove.yml", extra_vars={
                             "wp_name": site["name"],
                             "wp_domain": site["domain"],
                             "confirm_delete": "YES",
@@ -221,7 +221,7 @@ with tab_wp:
                     f"`wp_name={wp_name}`, `wp_domain={wp_domain}`, `wp_php={wp_php}`"
                 )
             else:
-                task = client.run_task(template_id=1, extra_vars={
+                task = client.run_playbook("wordpress-add.yml", extra_vars={
                     "wp_name": wp_name, "wp_domain": wp_domain, "wp_php": wp_php,
                 })
                 st.success(f"WordPress site creation triggered (task #{task['id']})")
@@ -272,7 +272,7 @@ with tab_odoo:
                             f"via Semaphore"
                         )
                     else:
-                        client.run_task(template_id=11, extra_vars={
+                        client.run_playbook("odoo-toggle.yml", extra_vars={
                             "odoo_name": inst["name"],
                             "odoo_action": toggle_action,
                         })
@@ -288,7 +288,7 @@ with tab_odoo:
                     if client.mock_mode:
                         st.success(f"Mock: would backup `{inst['db_name']}` (local, no upload)")
                     else:
-                        client.run_task(template_id=12, extra_vars={
+                        client.run_playbook("backup-run.yml", extra_vars={
                             "backup_scope": "single",
                             "backup_database": inst["db_name"],
                             "backup_skip_upload": True,
@@ -315,7 +315,7 @@ with tab_odoo:
                     if client.mock_mode:
                         st.info("Mock: would trigger `odoo-remove.yml`")
                     else:
-                        client.run_task(template_id=4, extra_vars={
+                        client.run_playbook("odoo-remove.yml", extra_vars={
                             "odoo_name": inst["name"],
                             "odoo_domain": inst["domain"],
                             "confirm_delete": "YES",
@@ -359,7 +359,7 @@ with tab_odoo:
                 )
                 st.caption("Ports will be auto-assigned by the playbook.")
             else:
-                task = client.run_task(template_id=3, extra_vars={
+                task = client.run_playbook("odoo-add.yml", extra_vars={
                     "odoo_name": odoo_name, "odoo_domain": odoo_domain,
                 })
                 st.success(f"Odoo instance creation triggered (task #{task['id']})")
@@ -462,7 +462,7 @@ with tab_mail:
                     if client.mock_mode:
                         st.info("Mock: would trigger `mail-remove-domain.yml`")
                     else:
-                        client.run_task(template_id=6, extra_vars={
+                        client.run_playbook("mail-remove-domain.yml", extra_vars={
                             "mail_domain": domain["domain"],
                             "confirm_delete": "YES",
                         })
@@ -503,7 +503,7 @@ with tab_mail:
             if client.mock_mode:
                 st.success(f"Mock: would trigger `mail-add-domain.yml` with `mail_domain={mail_domain}`")
             else:
-                task = client.run_task(template_id=5, extra_vars={
+                task = client.run_playbook("mail-add-domain.yml", extra_vars={
                     "mail_domain": mail_domain,
                 })
                 st.success(f"Mail domain addition triggered (task #{task['id']})")

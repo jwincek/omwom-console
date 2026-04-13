@@ -89,7 +89,7 @@ with st.expander("Run backup now"):
                 st.write("Mock: would trigger `backup-run.yml` via Semaphore")
                 status.update(label="Backup simulated (mock mode)", state="complete")
         else:
-            task = client.run_task(template_id=12, extra_vars=extra_vars)
+            task = client.run_playbook("backup-run.yml", extra_vars=extra_vars)
             with st.status("Running backup...", expanded=True) as status:
                 st.write(f"Scope: {scope_desc}")
                 st.write(f"Semaphore task #{task['id']} started")
@@ -113,7 +113,7 @@ with st.expander("Run backup now"):
                 st.write("Mock: would trigger `backup-verify.yml` via Semaphore")
                 status.update(label="Verification simulated (mock mode)", state="complete")
         else:
-            task = client.run_task(template_id=13)
+            task = client.run_playbook("backup-verify.yml")
             with st.status("Verifying backups...", expanded=True) as status:
                 st.write(f"Semaphore task #{task['id']} started")
                 result = client.wait_for_task(task["id"])
