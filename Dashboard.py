@@ -4,12 +4,15 @@ from datetime import datetime, timezone
 
 from lib.database import get_recent_activity
 from lib.semaphore import get_client
-from lib.mock_data import (
-    get_server_stats,
-    get_services,
+from lib.inventory import (
     get_wordpress_sites,
     get_odoo_instances,
     get_mail_domains,
+    inventory_available,
+)
+from lib.mock_data import (
+    get_server_stats,
+    get_services,
     get_ssl_certificates,
     get_backup_status,
 )
@@ -24,7 +27,9 @@ client = get_client()
 
 st.title("OMWOM Console")
 if client.mock_mode:
-    st.caption("Server overview and management dashboard — 🟠 Mock mode")
+    st.caption("Server overview and management dashboard — 🟠 Semaphore: mock mode")
+elif not inventory_available():
+    st.caption("Server overview and management dashboard — 🟠 Inventory: mock data")
 else:
     st.caption("Server overview and management dashboard")
 

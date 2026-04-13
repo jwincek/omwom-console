@@ -6,7 +6,7 @@ import streamlit as st
 from lib.database import log_activity
 from lib.semaphore import get_client
 from lib.modoboa import get_modoboa_client
-from lib.mock_data import get_wordpress_sites, get_odoo_instances, get_mail_domains
+from lib.inventory import get_wordpress_sites, get_odoo_instances, get_mail_domains, inventory_available
 
 st.set_page_config(page_title="Sites - OMWOM Console", page_icon=":satellite:", layout="wide")
 
@@ -17,9 +17,11 @@ client = get_client()
 modoboa = get_modoboa_client()
 
 if client.mock_mode:
-    st.caption("🟠 Running in mock mode — Semaphore not connected")
+    st.caption("🟠 Semaphore: mock mode")
 if modoboa.mock_mode:
-    st.caption("🟠 Modoboa mock mode — mail API not connected")
+    st.caption("🟠 Modoboa: mock mode")
+if not inventory_available():
+    st.caption("🟠 Inventory: mock data")
 
 
 def generate_password(length=24):
