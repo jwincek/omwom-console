@@ -118,8 +118,10 @@ class SemaphoreClient:
 
     def find_template_by_playbook(self, playbook: str) -> dict | None:
         templates = self.get_templates()
+        bare = playbook.split("/")[-1]
         for t in templates:
-            if t.get("playbook") == playbook:
+            tp = t.get("playbook", "")
+            if tp == playbook or tp == f"playbooks/{playbook}" or tp.endswith(f"/{bare}"):
                 return t
         return None
 
