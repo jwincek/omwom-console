@@ -46,17 +46,19 @@ def inventory_available() -> bool:
 
 
 def _read_wp_version(site_name: str) -> str:
-    """Read WP version from the site's wp-includes/version.php file."""
+    """Read WP version from the site's wp-includes/version.php file.
+
+    Returns "—" if the file is unreadable (permission denied, missing, etc.).
+    Each WordPress site is owned by its own system user, so consoleapp won't
+    always have read access."""
     import re
-    version_file = Path(f"/var/www/{site_name}/public/wp-includes/version.php")
-    if not version_file.exists():
-        return "—"
     try:
+        version_file = Path(f"/var/www/{site_name}/public/wp-includes/version.php")
         content = version_file.read_text(errors="replace")
         match = re.search(r"\$wp_version\s*=\s*['\"]([^'\"]+)['\"]", content)
         if match:
             return match.group(1)
-    except (OSError, PermissionError):
+    except Exception:
         pass
     return "—"
 
