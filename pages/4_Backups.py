@@ -283,15 +283,27 @@ st.divider()
 # ── Remote providers ────────────────────────────────────
 st.subheader("Remote Providers")
 
+status_icons = {
+    "synced": "🟢",
+    "disabled": "⚪",
+    "error": "🔴",
+    "unreachable": "🟠",
+}
+
 prov_cols = st.columns(len(providers))
 for i, prov in enumerate(providers):
     with prov_cols[i]:
-        sync_hours = (now - prov["last_sync"]).total_seconds() / 3600
-        sync_icon = "🟢" if prov["status"] == "synced" else "🔴"
+        sync_icon = status_icons.get(prov["status"], "🔴")
 
         with st.container(border=True):
             st.markdown(f"**{prov['name']}**")
-            st.caption(f"{sync_icon} {prov['status'].title()} — {sync_hours:.0f}h ago")
+
+            if prov["last_sync"]:
+                sync_hours = (now - prov["last_sync"]).total_seconds() / 3600
+                st.caption(f"{sync_icon} {prov['status'].title()} — checked {sync_hours:.0f}h ago")
+            else:
+                st.caption(f"{sync_icon} {prov['status'].title()}")
+
             st.caption(f"Size: {prov['total_size_gb']:.1f} GB ({prov['file_count']} files)")
             st.caption(f"Retention: {prov['retention_days']} days")
             st.caption(f"Est. cost: ${prov['monthly_cost']:.2f}/mo")
