@@ -12,6 +12,7 @@ from lib.inventory import (
 )
 from lib.backups import get_backup_status, real_data_available as backups_real
 from lib.certs import get_ssl_certificates, get_report_metadata as cert_report_meta, real_data_available as certs_real
+from lib.modoboa import get_modoboa_client
 from lib.mock_data import (
     get_server_stats,
     get_services,
@@ -121,31 +122,45 @@ st.divider()
 left, right = st.columns(2)
 
 with left:
-    st.markdown("### [WordPress Sites](/Sites)")
+    st.markdown("### [WordPress Sites](/Sites?tab=wordpress)")
     for site in wp_sites:
         status_icon = "🟢" if site["status"] == "running" else "🔴"
         with st.container(border=True):
             c1, c2, c3 = st.columns([3, 2, 1])
-            c1.markdown(f"[**{site['domain']}**](https://{site['domain']})")
+            c1.markdown(f"**{site['domain']}** — [Manage →](/Sites?tab=wordpress&site={site['name']})")
             c2.caption(f"PHP {site['php_version']} / WP {site['wp_version']}")
-            c3.markdown(f"{status_icon} [{site['status']}](https://{site['domain']}/wp-admin)")
+            c3.markdown(f"{status_icon} {site['status']}")
+            st.caption(f"[Open site](https://{site['domain']}) · [WP Admin](https://{site['domain']}/wp-admin)")
 
-    st.markdown("### [Odoo Instances](/Sites)")
+    st.markdown("### [Odoo Instances](/Sites?tab=odoo)")
     for inst in odoo_instances:
         status_icon = "🟢" if inst["status"] == "running" else "🔴"
         with st.container(border=True):
             c1, c2, c3 = st.columns([3, 2, 1])
-            c1.markdown(f"[**{inst['domain']}**](https://{inst['domain']})")
+            c1.markdown(f"**{inst['domain']}** — [Manage →](/Sites?tab=odoo&site={inst['name']})")
             c2.caption(f"Odoo {inst['version']} / port {inst['port']}")
             c3.markdown(f"{status_icon} {inst['status']}")
+            st.caption(f"[Open site](https://{inst['domain']})")
 
 with right:
-    st.markdown("### [Mail Domains](/Sites)")
+    st.markdown("### [Mail Domains](/Sites?tab=mail)")
+    modoboa = get_modoboa_client()
     for domain in mail_domains:
+        try:
+            mailbox_count = len(modoboa.list_accounts(domain["domain"]))
+        except Exception:
+            mailbox_count = None
+
         with st.container(border=True):
             c1, c2 = st.columns([3, 1])
-            c1.markdown(f"[**{domain['domain']}**](https://mail.omwom.com/#/domains/)")
-            c2.caption(f"{domain['mailboxes']} mailboxes")
+            c1.markdown(f"**{domain['domain']}** — [Manage →](/Sites?tab=mail&domain={domain['domain']})")
+            if mailbox_count is None:
+                c2.caption("Modoboa unreachable")
+            elif mailbox_count == 0:
+                c2.caption("No mailboxes")
+            else:
+                c2.caption(f"{mailbox_count} mailbox{'es' if mailbox_count != 1 else ''}")
+            st.caption(f"[Open in Modoboa](https://mail.omwom.com/#/domains/)")
 
     st.markdown("### [Backup Status](/Backups)")
     backup_icon = {"success": "🟢", "partial": "🟠", "failed": "🔴"}.get(backup["status"], "⚪")

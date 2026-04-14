@@ -30,6 +30,11 @@ def generate_password(length=24):
 
 PHP_VERSIONS = ["8.2", "8.3"]
 
+# ── Read query params for deep-linking from Dashboard ───
+qp_tab = st.query_params.get("tab", "")
+qp_site = st.query_params.get("site", "")
+qp_domain = st.query_params.get("domain", "")
+
 # ── Data ────────────────────────────────────────────────
 wp_sites = get_wordpress_sites()
 odoo_instances = get_odoo_instances()
@@ -55,7 +60,8 @@ tab_wp, tab_odoo, tab_mail = st.tabs([
 with tab_wp:
     for site in wp_sites:
         status_icon = "🟢" if site["status"] == "running" else "🔴"
-        with st.expander(f"{status_icon} **{site['domain']}** ({site['name']})", expanded=False):
+        is_focus = qp_tab == "wordpress" and qp_site == site["name"]
+        with st.expander(f"{status_icon} **{site['domain']}** ({site['name']})", expanded=is_focus):
             info_col, actions_col = st.columns([3, 2])
 
             with info_col:
@@ -232,7 +238,8 @@ with tab_wp:
 with tab_odoo:
     for inst in odoo_instances:
         status_icon = "🟢" if inst["status"] == "running" else "🔴"
-        with st.expander(f"{status_icon} **{inst['domain']}** ({inst['name']})", expanded=False):
+        is_focus = qp_tab == "odoo" and qp_site == inst["name"]
+        with st.expander(f"{status_icon} **{inst['domain']}** ({inst['name']})", expanded=is_focus):
             info_col, actions_col = st.columns([3, 2])
 
             with info_col:
@@ -371,7 +378,8 @@ with tab_mail:
     for domain in mail_domains:
         accounts = modoboa.list_accounts(domain["domain"])
 
-        with st.expander(f"**{domain['domain']}** — {len(accounts)} accounts", expanded=False):
+        is_focus = qp_tab == "mail" and qp_domain == domain["domain"]
+        with st.expander(f"**{domain['domain']}** — {len(accounts)} accounts", expanded=is_focus):
             info_col, actions_col = st.columns([3, 2])
 
             with info_col:

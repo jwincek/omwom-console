@@ -45,6 +45,23 @@ def inventory_available() -> bool:
     return _load_inventory() is not None
 
 
+def _read_wp_version(site_name: str) -> str:
+    """Read WP version from the site's wp-includes/version.php file."""
+    import re
+    version_file = Path(f"/var/www/{site_name}/public/wp-includes/version.php")
+    if not version_file.exists():
+        return "—"
+    try:
+        content = version_file.read_text(errors="replace")
+        match = re.search(r"\$wp_version\s*=\s*['\"]([^'\"]+)['\"]", content)
+        if match:
+            return match.group(1)
+    except (OSError, PermissionError):
+        pass
+    return "—"
+
+
+@st.cache_data(ttl=300)
 def get_wordpress_sites() -> list[dict]:
     inv = _load_inventory()
     if inv is None:
@@ -59,7 +76,7 @@ def get_wordpress_sites() -> list[dict]:
             "php_version": s.get("php_version", "8.3"),
             "status": "running",
             "db_name": s.get("db_name", f"{s.get('name', '')}_db"),
-            "wp_version": "—",
+            "wp_version": _read_wp_version(s.get("name", "")),
         }
         for s in sites
     ]
