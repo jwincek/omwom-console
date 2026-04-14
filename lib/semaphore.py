@@ -152,6 +152,34 @@ class SemaphoreClient:
             time.sleep(poll_interval)
         return self.get_task(task_id)
 
+    def stream_task(self, task_id: int, poll_interval: float = 2.0, timeout: float = 600.0):
+        """Yield (status, new_output_lines, task) tuples as the task progresses.
+        Stops when the task reaches a terminal state (success/error/stopped) or timeout."""
+        start = time.time()
+        seen_count = 0
+
+        while time.time() - start < timeout:
+            try:
+                output = self.get_task_output(task_id)
+            except Exception:
+                output = []
+
+            new_lines = output[seen_count:] if len(output) > seen_count else []
+            seen_count = len(output)
+
+            try:
+                task = self.get_task(task_id)
+            except Exception:
+                task = {"status": "unknown"}
+
+            status = task.get("status", "unknown")
+            yield status, new_lines, task
+
+            if status in ("success", "error", "stopped"):
+                return
+
+            time.sleep(poll_interval)
+
 
 class MockSemaphoreClient:
     """Returns realistic mock data for local development."""
@@ -322,6 +350,11 @@ class MockSemaphoreClient:
 
     def wait_for_task(self, task_id: int, poll_interval: float = 3.0, timeout: float = 600.0) -> dict:
         return self.get_task(task_id)
+
+    def stream_task(self, task_id: int, poll_interval: float = 2.0, timeout: float = 600.0):
+        output = self.get_task_output(task_id)
+        task = self.get_task(task_id)
+        yield task["status"], output, task
 
 
 @st.cache_resource

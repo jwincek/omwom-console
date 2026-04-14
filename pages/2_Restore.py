@@ -319,13 +319,43 @@ if "_restore_done" in st.session_state:
         else:
             st.write(f"Triggering `{playbook}` via Semaphore:")
             st.code("\n".join(f"{k}: {v}" for k, v in extra_vars.items()), language="yaml")
+
             task = client.run_playbook(playbook, extra_vars=extra_vars)
-            st.write(f"Semaphore task #{task['id']} started")
-            result = client.wait_for_task(task["id"])
-            if result["status"] == "success":
+            task_id = task["id"]
+            st.write(f"Semaphore task #{task_id} started · [View in Semaphore](https://ops.omwom.com/project/1/templates/8)")
+            st.caption("This typically takes 1–3 minutes. Progress updates as the playbook runs.")
+
+            progress_placeholder = st.empty()
+            last_task_line = ""
+            final_status = "unknown"
+
+            for stream_status, new_lines, task_info in client.stream_task(task_id, poll_interval=2.0, timeout=900):
+                final_status = stream_status
+                for line in new_lines:
+                    text = line.get("output", "").strip()
+                    if not text:
+                        continue
+                    if text.startswith("TASK ["):
+                        task_name = text.replace("TASK [", "").rstrip(" *]").rstrip("]")
+                        last_task_line = task_name
+                        progress_placeholder.info(f"🔄 {task_name}")
+                    elif text.startswith("PLAY ["):
+                        progress_placeholder.info(f"▶ {text}")
+                    elif "fatal:" in text.lower() or "error" in text.lower()[:20]:
+                        st.error(text)
+                    elif text.startswith("PLAY RECAP"):
+                        progress_placeholder.info("📊 Play recap")
+
+            if final_status == "success":
+                progress_placeholder.empty()
                 status.update(label="Restore complete", state="complete")
             else:
-                status.update(label="Restore failed", state="error")
+                progress_placeholder.empty()
+                status.update(label=f"Restore {final_status}", state="error")
+                st.error(
+                    f"Task #{task_id} ended with status `{final_status}`. "
+                    f"Check the [full task output in Semaphore](https://ops.omwom.com/project/1/templates/8) for details."
+                )
 
     st.subheader("Next Steps")
     st.markdown(
