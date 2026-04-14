@@ -32,7 +32,12 @@ def get_ssl_certificates():
         from lib.mock_data import get_ssl_certificates as mock
         return mock()
 
-    certs = data.get("certificates", [])
+    # Handle both formats: new (dict with "certificates" key) and old (flat list)
+    if isinstance(data, list):
+        certs = data
+    else:
+        certs = data.get("certificates", [])
+
     if not certs:
         from lib.mock_data import get_ssl_certificates as mock
         return mock()
@@ -77,6 +82,21 @@ def get_report_metadata():
             data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return None
+
+    # Old format (list) doesn't have metadata
+    if isinstance(data, list):
+        try:
+            mtime = datetime.fromtimestamp(SSL_REPORT.stat().st_mtime, tz=timezone.utc)
+        except OSError:
+            mtime = None
+        return {
+            "timestamp": mtime,
+            "checked": len(data),
+            "ok": sum(1 for c in data if c.get("status") == "OK"),
+            "warning": sum(1 for c in data if c.get("status") == "WARNING"),
+            "critical": sum(1 for c in data if c.get("status") == "CRITICAL"),
+            "error": sum(1 for c in data if c.get("status") == "ERROR"),
+        }
 
     try:
         ts = datetime.fromisoformat(data["timestamp"])
