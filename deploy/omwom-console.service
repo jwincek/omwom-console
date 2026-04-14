@@ -21,7 +21,7 @@ RestartSec=5
 
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/omwom-console/app
+ReadWritePaths=/opt/omwom-console/app /srv/restore-staging
 NoNewPrivileges=true
 
 [Install]

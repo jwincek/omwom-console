@@ -33,17 +33,31 @@ if source_mode == "Upload Softaculous (< 500 MB)":
     if uploaded:
         if st.session_state.get("_last_upload") != uploaded.name:
             with st.spinner("Parsing backup metadata..."):
-                info = parse_backup_file(uploaded.getvalue())
+                file_bytes = uploaded.getvalue()
+                info = parse_backup_file(file_bytes)
 
             if info is None:
                 st.error("Could not parse this file. Is it a Softaculous WordPress Manager backup?")
                 st.stop()
 
+            # In production, save the upload to the staging directory so the playbook can read it
+            staging_path = None
+            if not client.mock_mode:
+                staging_dir = Path("/srv/restore-staging")
+                try:
+                    staging_dir.mkdir(parents=True, exist_ok=True)
+                    staging_path = staging_dir / uploaded.name
+                    staging_path.write_bytes(file_bytes)
+                    staging_path.chmod(0o640)
+                except (OSError, PermissionError) as e:
+                    st.error(f"Could not save upload to {staging_dir}: {e}")
+                    st.stop()
+
             st.session_state._backup_info = info
             st.session_state._last_upload = uploaded.name
             st.session_state._upload_name = uploaded.name
             st.session_state._upload_size_mb = uploaded.size / 1024 / 1024
-            st.session_state._backup_path = None
+            st.session_state._backup_path = str(staging_path) if staging_path else None
             st.session_state.pop("_restore_done", None)
 
 elif source_mode == "Softaculous server path":
