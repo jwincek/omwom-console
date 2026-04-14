@@ -219,10 +219,27 @@ with tab_wp:
         if wp_name and not name_valid:
             st.warning("Must be 2-16 lowercase alphanumeric characters, starting with a letter.")
 
+        st.markdown("**Email setup** (optional)")
+        add_mail = st.checkbox(
+            "Also create mail domain",
+            value=True,
+            key="add_wp_mail_domain",
+            help=f"Adds the domain to Modoboa so it can receive email.",
+        )
+        add_default_mailboxes = st.checkbox(
+            "Create default mailboxes (postmaster, info)",
+            value=True,
+            key="add_wp_default_mailboxes",
+            disabled=not add_mail,
+            help="Creates postmaster@ and info@ accounts via the Modoboa API.",
+        )
+
         can_add = name_valid and domain_valid and not name_taken
 
         if st.button("Add WordPress site", type="primary", disabled=not can_add, key="btn_add_wp"):
             log_activity("wordpress", "site_added", f"Added {wp_name} ({wp_domain})")
+
+            # Step 1: WordPress
             if client.mock_mode:
                 st.success(
                     f"Mock: would trigger `wordpress-add.yml` with "
@@ -233,6 +250,42 @@ with tab_wp:
                     "wp_name": wp_name, "wp_domain": wp_domain, "wp_php": wp_php,
                 })
                 st.success(f"WordPress site creation triggered (task #{task['id']})")
+
+            # Step 2: Mail domain (if enabled)
+            if add_mail:
+                log_activity("mail", "domain_added", f"Auto-added {wp_domain} with WordPress site")
+                if client.mock_mode:
+                    st.info(f"Mock: would trigger `mail-add-domain.yml` for `{wp_domain}`")
+                else:
+                    mail_task = client.run_playbook("mail-add-domain.yml", extra_vars={
+                        "mail_domain": wp_domain,
+                    })
+                    st.success(f"Mail domain addition triggered (task #{mail_task['id']})")
+
+                # Step 3: Default mailboxes (if enabled)
+                if add_default_mailboxes:
+                    default_pass = generate_password()
+                    log_activity("mail", "default_mailboxes_created", f"postmaster@{wp_domain}, info@{wp_domain}")
+
+                    if modoboa.mock_mode:
+                        st.info(f"Mock: would create `postmaster@{wp_domain}` and `info@{wp_domain}`")
+                    else:
+                        try:
+                            modoboa.create_default_accounts(wp_domain, default_pass)
+                            st.success(f"Default mailboxes created for {wp_domain}")
+                            with st.container(border=True):
+                                st.markdown(f"**Default mailbox credentials for `{wp_domain}`**")
+                                st.code(
+                                    f"postmaster@{wp_domain}  /  {default_pass}\n"
+                                    f"info@{wp_domain}        /  {default_pass}",
+                                    language="text",
+                                )
+                                st.caption("Save these credentials. Change them after first login.")
+                        except Exception as e:
+                            st.warning(
+                                f"Mailbox creation via Modoboa API failed: {e}. "
+                                f"Create them manually at [mail.omwom.com](https://mail.omwom.com/)."
+                            )
 
 # ── Odoo tab ────────────────────────────────────────────
 with tab_odoo:
@@ -357,10 +410,25 @@ with tab_odoo:
         if odoo_name and o_name_taken:
             st.warning(f"Instance identifier `{odoo_name}` is already in use.")
 
+        st.markdown("**Email setup** (optional)")
+        add_odoo_mail = st.checkbox(
+            "Also create mail domain",
+            value=True,
+            key="add_odoo_mail_domain",
+        )
+        add_odoo_default_mailboxes = st.checkbox(
+            "Create default mailboxes (postmaster, info)",
+            value=True,
+            key="add_odoo_default_mailboxes",
+            disabled=not add_odoo_mail,
+        )
+
         can_add_odoo = o_name_valid and o_domain_valid and not o_name_taken
 
         if st.button("Add Odoo instance", type="primary", disabled=not can_add_odoo, key="btn_add_odoo"):
             log_activity("odoo", "instance_added", f"Added {odoo_name} ({odoo_domain})")
+
+            # Step 1: Odoo
             if client.mock_mode:
                 st.success(
                     f"Mock: would trigger `odoo-add.yml` with "
@@ -372,6 +440,42 @@ with tab_odoo:
                     "odoo_name": odoo_name, "odoo_domain": odoo_domain,
                 })
                 st.success(f"Odoo instance creation triggered (task #{task['id']})")
+
+            # Step 2: Mail domain (if enabled)
+            if add_odoo_mail:
+                log_activity("mail", "domain_added", f"Auto-added {odoo_domain} with Odoo instance")
+                if client.mock_mode:
+                    st.info(f"Mock: would trigger `mail-add-domain.yml` for `{odoo_domain}`")
+                else:
+                    mail_task = client.run_playbook("mail-add-domain.yml", extra_vars={
+                        "mail_domain": odoo_domain,
+                    })
+                    st.success(f"Mail domain addition triggered (task #{mail_task['id']})")
+
+                # Step 3: Default mailboxes (if enabled)
+                if add_odoo_default_mailboxes:
+                    default_pass = generate_password()
+                    log_activity("mail", "default_mailboxes_created", f"postmaster@{odoo_domain}, info@{odoo_domain}")
+
+                    if modoboa.mock_mode:
+                        st.info(f"Mock: would create `postmaster@{odoo_domain}` and `info@{odoo_domain}`")
+                    else:
+                        try:
+                            modoboa.create_default_accounts(odoo_domain, default_pass)
+                            st.success(f"Default mailboxes created for {odoo_domain}")
+                            with st.container(border=True):
+                                st.markdown(f"**Default mailbox credentials for `{odoo_domain}`**")
+                                st.code(
+                                    f"postmaster@{odoo_domain}  /  {default_pass}\n"
+                                    f"info@{odoo_domain}        /  {default_pass}",
+                                    language="text",
+                                )
+                                st.caption("Save these credentials. Change them after first login.")
+                        except Exception as e:
+                            st.warning(
+                                f"Mailbox creation via Modoboa API failed: {e}. "
+                                f"Create them manually at [mail.omwom.com](https://mail.omwom.com/)."
+                            )
 
 # ── Mail tab ────────────────────────────────────────────
 with tab_mail:
