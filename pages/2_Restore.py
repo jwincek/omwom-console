@@ -357,6 +357,60 @@ if "_restore_done" in st.session_state:
                     f"Check the [full task output in Semaphore](https://ops.omwom.com/project/1/templates/8) for details."
                 )
 
+    # ── Post-restore: add mail domain + default mailboxes ──
+    if not client.mock_mode and p.get("add_mail") and p.get("_mail_processed") is not True:
+        st.session_state._restore_done["_mail_processed"] = True
+
+        from lib.modoboa import get_modoboa_client
+        modoboa = get_modoboa_client()
+        mail_domain = p["wp_domain"]
+
+        with st.status(f"Setting up email for {mail_domain}...", expanded=True) as mail_status:
+            try:
+                mail_task = client.run_playbook("mail-add-domain.yml", extra_vars={
+                    "mail_domain": mail_domain,
+                })
+                mail_result = client.wait_for_task(mail_task["id"], timeout=120)
+                if mail_result["status"] == "success":
+                    st.write(f"✅ Mail domain `{mail_domain}` added to Modoboa")
+                else:
+                    st.write(f"⚠ Mail domain playbook ended with status `{mail_result['status']}`")
+            except Exception as e:
+                st.write(f"⚠ Mail domain addition failed: {e}")
+
+            if p.get("add_mailboxes"):
+                from secrets import choice
+                from string import ascii_letters, digits
+                default_pass = "".join(choice(ascii_letters + digits + "!@#$%&*") for _ in range(24))
+
+                try:
+                    if modoboa.mock_mode:
+                        st.write(f"Mock: would create `postmaster@{mail_domain}` and `info@{mail_domain}`")
+                    else:
+                        modoboa.create_default_accounts(mail_domain, default_pass)
+                        st.write(f"✅ Default mailboxes created")
+
+                    mail_status.update(label=f"Email ready for {mail_domain}", state="complete")
+
+                    with st.container(border=True):
+                        st.markdown(f"**Default mailbox credentials for `{mail_domain}`**")
+                        st.code(
+                            f"postmaster@{mail_domain}  /  {default_pass}\n"
+                            f"info@{mail_domain}        /  {default_pass}",
+                            language="text",
+                        )
+                        st.caption("Save these credentials — change them after first login.")
+                        log_activity("mail", "default_mailboxes_created",
+                                     f"Created postmaster@{mail_domain}, info@{mail_domain}")
+                except Exception as e:
+                    mail_status.update(label=f"Mailbox creation failed", state="error")
+                    st.warning(
+                        f"Mailbox creation via Modoboa API failed: {e}. "
+                        f"Create them manually at [mail.omwom.com](https://mail.omwom.com/)."
+                    )
+            else:
+                mail_status.update(label=f"Mail domain ready for {mail_domain}", state="complete")
+
     st.subheader("Next Steps")
     st.markdown(
         f"1. Verify the site loads at `https://{p['wp_domain']}`\n"
@@ -449,6 +503,20 @@ if wp_name and not name_valid:
 if wp_domain and not domain_valid:
     st.warning("Please enter a valid domain name (e.g., example.com).")
 
+st.markdown("**Email setup** (optional)")
+restore_add_mail = st.checkbox(
+    "Also create mail domain",
+    value=True,
+    key="restore_add_mail",
+    help="Adds the domain to Modoboa so it can receive email.",
+)
+restore_add_mailboxes = st.checkbox(
+    "Create default mailboxes (postmaster, info)",
+    value=True,
+    key="restore_add_mailboxes",
+    disabled=not restore_add_mail,
+)
+
 # ── Restore button ──────────────────────────────────────
 if st.button("Restore site", type="primary", disabled=not (name_valid and domain_valid)):
     log_activity(
@@ -466,6 +534,8 @@ if st.button("Restore site", type="primary", disabled=not (name_valid and domain
         "wp_php": wp_php,
         "old_domain": info["old_domain"],
         "site_name": info["site_name"],
+        "add_mail": restore_add_mail,
+        "add_mailboxes": restore_add_mailboxes,
         "file_name": upload_name,
         "file_size_mb": upload_size_mb,
         "backup_path": backup_path,
