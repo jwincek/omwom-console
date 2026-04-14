@@ -4,19 +4,23 @@ from datetime import datetime, timezone
 
 from lib.database import log_activity
 from lib.semaphore import get_client
-from lib.mock_backups import (
+from lib.backups import (
     get_backup_history,
     get_database_backups,
     get_file_backups,
     get_provider_status,
     get_verification_history,
     get_restore_tests,
+    real_data_available,
 )
 
 st.set_page_config(page_title="Backups - OMWOM Console", page_icon=":satellite:", layout="wide")
 
 st.title("Backup Status")
-st.caption("3-2-1 backup strategy: 3 copies, 2 storage types, 1 off-site")
+if real_data_available():
+    st.caption("3-2-1 backup strategy: 3 copies, 2 storage types, 1 off-site")
+else:
+    st.caption("3-2-1 backup strategy — 🟠 Reading mock data (no /var/backups/last_run.json found)")
 
 client = get_client()
 now = datetime.now(timezone.utc)
