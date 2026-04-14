@@ -8,6 +8,8 @@ User=consoleapp
 Group=consoleapp
 WorkingDirectory=/opt/omwom-console/app
 Environment="PATH=/opt/omwom-console/venv/bin:/usr/bin"
+Environment="HOME=/opt/omwom-console"
+Environment="RCLONE_CONFIG=/opt/omwom-console/.config/rclone/rclone.conf"
 EnvironmentFile=/opt/omwom-console/.env
 ExecStart=/opt/omwom-console/venv/bin/python -m streamlit run Dashboard.py \
     --server.port 8073 \
