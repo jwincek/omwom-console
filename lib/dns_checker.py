@@ -89,22 +89,31 @@ def check_spf(domain: str, expected_include: str = "") -> DnsCheck:
     return DnsCheck("SPF", domain, "v=spf1 ...", spf, "ok")
 
 
-def check_dkim(domain: str, selector: str = "default") -> DnsCheck:
-    dkim_name = f"{selector}._domainkey.{domain}"
-    results = _query(dkim_name, "TXT")
+DKIM_SELECTORS = ["modoboa", "default", "mail", "google", "dkim", "smtpapi", "s1", "k1"]
 
-    if not results:
-        return DnsCheck("DKIM", dkim_name, "DKIM key", "not found", "missing",
-                        f"No DKIM record at {dkim_name}. Check Modoboa for the correct selector.")
 
-    dkim = results[0]
-    if "p=" in dkim:
-        key_fragment = dkim[dkim.index("p="):dkim.index("p=") + 20] + "..."
-        return DnsCheck("DKIM", dkim_name, "DKIM key", key_fragment, "ok",
-                        "DKIM key found.")
+def check_dkim(domain: str, selectors: list[str] | None = None) -> DnsCheck:
+    selectors_to_try = selectors or DKIM_SELECTORS
 
-    return DnsCheck("DKIM", dkim_name, "DKIM key", dkim[:60] + "...", "warning",
-                    "TXT record exists but doesn't look like a DKIM key.")
+    for selector in selectors_to_try:
+        dkim_name = f"{selector}._domainkey.{domain}"
+        results = _query(dkim_name, "TXT")
+
+        if not results:
+            continue
+
+        dkim = results[0]
+        if "p=" in dkim:
+            key_fragment = dkim[dkim.index("p="):dkim.index("p=") + 20] + "..."
+            return DnsCheck("DKIM", dkim_name, "DKIM key", key_fragment, "ok",
+                            f"DKIM key found (selector: `{selector}`)")
+
+        return DnsCheck("DKIM", dkim_name, "DKIM key", dkim[:60] + "...", "warning",
+                        f"TXT record at `{dkim_name}` exists but doesn't look like a DKIM key.")
+
+    tried = ", ".join(f"`{s}`" for s in selectors_to_try)
+    return DnsCheck("DKIM", f"*._domainkey.{domain}", "DKIM key", "not found", "missing",
+                    f"No DKIM record found. Tried selectors: {tried}.")
 
 
 def check_dmarc(domain: str) -> DnsCheck:
