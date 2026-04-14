@@ -182,14 +182,24 @@ with tab_wp:
                                  f"Removed {site['name']} ({site['domain']})")
                     if client.mock_mode:
                         st.info("Mock: would trigger `wordpress-remove.yml`")
+                        st.session_state.pop(f"_confirm_remove_wp_{site['name']}", None)
                     else:
-                        client.run_playbook("wordpress-remove.yml", extra_vars={
-                            "wp_name": site["name"],
-                            "wp_domain": site["domain"],
-                            "confirm_delete": "YES",
-                        })
-                        st.success(f"Removal triggered for {site['name']}")
-                    st.session_state.pop(f"_confirm_remove_wp_{site['name']}", None)
+                        with st.status(f"Removing {site['name']}...", expanded=True) as status:
+                            task = client.run_playbook("wordpress-remove.yml", extra_vars={
+                                "wp_name": site["name"],
+                                "wp_domain": site["domain"],
+                                "confirm_delete": "YES",
+                            })
+                            st.write(f"Semaphore task #{task['id']} started")
+                            result = client.wait_for_task(task["id"], timeout=300)
+                            if result["status"] == "success":
+                                status.update(label=f"{site['name']} removed", state="complete")
+                            else:
+                                status.update(label=f"Removal failed: {result['status']}", state="error")
+
+                        st.session_state.pop(f"_confirm_remove_wp_{site['name']}", None)
+                        get_wordpress_sites.clear()
+                        st.rerun()
 
                 if cc2.button("Cancel", key=f"cancel_wp_{site['name']}"):
                     st.session_state.pop(f"_confirm_remove_wp_{site['name']}", None)
@@ -376,14 +386,24 @@ with tab_odoo:
                                  f"Removed {inst['name']} ({inst['domain']})")
                     if client.mock_mode:
                         st.info("Mock: would trigger `odoo-remove.yml`")
+                        st.session_state.pop(f"_confirm_remove_odoo_{inst['name']}", None)
                     else:
-                        client.run_playbook("odoo-remove.yml", extra_vars={
-                            "odoo_name": inst["name"],
-                            "odoo_domain": inst["domain"],
-                            "confirm_delete": "YES",
-                        })
-                        st.success(f"Removal triggered for {inst['name']}")
-                    st.session_state.pop(f"_confirm_remove_odoo_{inst['name']}", None)
+                        with st.status(f"Removing {inst['name']}...", expanded=True) as status:
+                            task = client.run_playbook("odoo-remove.yml", extra_vars={
+                                "odoo_name": inst["name"],
+                                "odoo_domain": inst["domain"],
+                                "confirm_delete": "YES",
+                            })
+                            st.write(f"Semaphore task #{task['id']} started")
+                            result = client.wait_for_task(task["id"], timeout=300)
+                            if result["status"] == "success":
+                                status.update(label=f"{inst['name']} removed", state="complete")
+                            else:
+                                status.update(label=f"Removal failed: {result['status']}", state="error")
+
+                        st.session_state.pop(f"_confirm_remove_odoo_{inst['name']}", None)
+                        get_odoo_instances.clear()
+                        st.rerun()
 
                 if cc2.button("Cancel", key=f"cancel_odoo_{inst['name']}"):
                     st.session_state.pop(f"_confirm_remove_odoo_{inst['name']}", None)
@@ -575,13 +595,23 @@ with tab_mail:
                     log_activity("mail", "domain_removed", f"Removed {domain['domain']}")
                     if client.mock_mode:
                         st.info("Mock: would trigger `mail-remove-domain.yml`")
+                        st.session_state.pop(f"_confirm_remove_mail_{domain['domain']}", None)
                     else:
-                        client.run_playbook("mail-remove-domain.yml", extra_vars={
-                            "mail_domain": domain["domain"],
-                            "confirm_delete": "YES",
-                        })
-                        st.success(f"Removal triggered for {domain['domain']}")
-                    st.session_state.pop(f"_confirm_remove_mail_{domain['domain']}", None)
+                        with st.status(f"Removing {domain['domain']}...", expanded=True) as status:
+                            task = client.run_playbook("mail-remove-domain.yml", extra_vars={
+                                "mail_domain": domain["domain"],
+                                "confirm_delete": "YES",
+                            })
+                            st.write(f"Semaphore task #{task['id']} started")
+                            result = client.wait_for_task(task["id"], timeout=300)
+                            if result["status"] == "success":
+                                status.update(label=f"{domain['domain']} removed", state="complete")
+                            else:
+                                status.update(label=f"Removal failed: {result['status']}", state="error")
+
+                        st.session_state.pop(f"_confirm_remove_mail_{domain['domain']}", None)
+                        get_mail_domains.clear()
+                        st.rerun()
 
                 if mc2.button("Cancel", key=f"cancel_mail_{domain['domain']}"):
                     st.session_state.pop(f"_confirm_remove_mail_{domain['domain']}", None)
