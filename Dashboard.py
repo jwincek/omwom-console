@@ -13,10 +13,7 @@ from lib.inventory import (
 from lib.backups import get_backup_status, real_data_available as backups_real
 from lib.certs import get_ssl_certificates, get_report_metadata as cert_report_meta, real_data_available as certs_real
 from lib.modoboa import get_modoboa_client
-from lib.mock_data import (
-    get_server_stats,
-    get_services,
-)
+from lib.server_stats import get_server_stats, get_services, real_data_available as stats_real
 
 st.set_page_config(
     page_title="OMWOM Console",
@@ -36,6 +33,8 @@ if not backups_real():
     data_warnings.append("Backups: mock")
 if not certs_real():
     data_warnings.append("SSL: mock")
+if not stats_real():
+    data_warnings.append("Server stats: mock")
 
 if data_warnings:
     st.caption("Server overview and management dashboard — 🟠 " + " · ".join(data_warnings))
@@ -70,8 +69,25 @@ if backup["status"] != "success":
 elif hours_since_backup > 26:
     alerts.append(("warning", f"Last backup was {hours_since_backup:.0f} hours ago — [View Backups](/Backups)"))
 
-if backup["verify_status"] != "passed":
+if backup["verify_status"] not in ("passed", "unknown"):
     alerts.append(("error", f"Backup verification **{backup['verify_status']}** — [View Backups](/Backups)"))
+
+# Resource alerts
+ram_pct = stats.get("ram_percent", 0)
+if ram_pct >= 90:
+    alerts.append(("error", f"RAM usage at **{ram_pct}%** — investigate processes"))
+elif ram_pct >= 80:
+    alerts.append(("warning", f"RAM usage at **{ram_pct}%** — monitor"))
+
+disk_pct = stats.get("disk_percent", 0)
+if disk_pct >= 90:
+    alerts.append(("error", f"Disk usage at **{disk_pct}%** — clean up logs or backups"))
+elif disk_pct >= 80:
+    alerts.append(("warning", f"Disk usage at **{disk_pct}%** — monitor"))
+
+load_1m = stats.get("load_1m", 0)
+if load_1m > 8:  # 8 cores on the Magnetar
+    alerts.append(("warning", f"Load average **{load_1m:.2f}** exceeds CPU count (8)"))
 
 down_services = [s for s in services if s["status"] != "running"]
 for svc in down_services:
@@ -104,17 +120,17 @@ col1.metric("Uptime", f"{stats['uptime_days']}d")
 col2.metric("CPU", f"{stats['cpu_usage_percent']}%")
 col3.metric(
     "RAM",
-    f"{stats['ram_used_gb']:.1f} GB",
-    delta=f"{stats['ram_total_gb'] - stats['ram_used_gb']:.1f} GB free",
+    f"{stats['ram_used_gb']:.1f} / {stats['ram_total_gb']:.1f} GB",
+    delta=f"{stats.get('ram_percent', 0)}% used",
     delta_color="off",
 )
 col4.metric(
     "Disk",
-    f"{stats['disk_used_gb']} GB",
-    delta=f"{stats['disk_total_gb'] - stats['disk_used_gb']} GB free",
+    f"{stats['disk_used_gb']} / {stats['disk_total_gb']} GB",
+    delta=f"{stats.get('disk_percent', 0)}% used",
     delta_color="off",
 )
-col5.metric("Load", stats["load_average"].split(",")[0].strip())
+col5.metric("Load (1m)", stats["load_average"].split(",")[0].strip())
 
 st.divider()
 
