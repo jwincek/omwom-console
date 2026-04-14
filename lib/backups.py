@@ -135,6 +135,8 @@ def get_database_backups():
             continue
 
         ts = datetime.fromisoformat(info["timestamp"])
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
 
         db_files.append({
             "database": db_name,
