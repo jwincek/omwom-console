@@ -191,7 +191,7 @@ with tab_chart:
         x=alt.X("Date:N", sort=None, title="Date"),
         y=alt.Y("Size (MB):Q", title="Size (MB)"),
         color=alt.Color("Status:N", scale=color_scale, legend=alt.Legend(title="Status")),
-        tooltip=["Date", "Size (MB)", "Status", "Duration", "Databases", "Delta"],
+        tooltip=["Date", "Time", "Size (MB)", "Status", "Duration", "Sites", "Other", "Delta"],
     ).properties(height=350)
 
     st.altair_chart(bars, width="stretch")
