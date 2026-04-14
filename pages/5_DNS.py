@@ -2,7 +2,13 @@ import streamlit as st
 import pandas as pd
 
 from lib.dns_checker import check_domain, check_a_record
-from lib.mock_data import get_wordpress_sites, get_odoo_instances, get_mail_domains
+from lib.inventory import (
+    get_wordpress_sites,
+    get_odoo_instances,
+    get_mail_domains,
+    get_management_subdomains,
+    get_server_config,
+)
 from lib.database import log_activity
 
 st.set_page_config(page_title="DNS - OMWOM Console", page_icon=":satellite:", layout="wide")
@@ -78,17 +84,32 @@ st.divider()
 
 # ── Bulk check all managed domains ──────────────────────
 st.subheader("All Managed Domains")
-st.caption("Check DNS for all WordPress sites, Odoo instances, and mail domains.")
+st.caption("Check DNS for the primary domain, all management subdomains, WordPress sites, Odoo instances, and mail domains.")
+
+include_mgmt = st.checkbox("Include omwom.com management subdomains", value=True, key="dns_include_mgmt")
 
 if st.button("Check all domains"):
     domains = set()
 
+    server_cfg = get_server_config()
+    primary = server_cfg.get("primary_domain", "")
+
+    if include_mgmt and primary:
+        domains.add(primary)
+        for sub in get_management_subdomains():
+            sub_name = sub.get("sub", "")
+            if sub_name:
+                domains.add(f"{sub_name}.{primary}")
+
     for site in get_wordpress_sites():
-        domains.add(site["domain"])
+        if site.get("domain"):
+            domains.add(site["domain"])
     for inst in get_odoo_instances():
-        domains.add(inst["domain"])
+        if inst.get("domain"):
+            domains.add(inst["domain"])
     for md in get_mail_domains():
-        domains.add(md["domain"])
+        if md.get("domain"):
+            domains.add(md["domain"])
 
     log_activity("dns", "bulk_check", f"{len(domains)} domains")
 
