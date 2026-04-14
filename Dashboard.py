@@ -166,10 +166,14 @@ with right:
             f"Size: {backup['total_size_mb']:,.0f} MB"
         )
 
+        prov_status_icons = {"synced": "🟢", "disabled": "⚪", "error": "🔴", "unreachable": "🟠"}
         for provider in backup["providers"]:
-            prov_icon = "🟢" if provider["status"] == "synced" else "🟠"
-            prov_hours = (datetime.now(timezone.utc) - provider["last_sync"]).total_seconds() / 3600
-            st.caption(f"{prov_icon} {provider['name']}: synced {prov_hours:.0f}h ago")
+            prov_icon = prov_status_icons.get(provider["status"], "🟠")
+            if provider["last_sync"]:
+                prov_hours = (datetime.now(timezone.utc) - provider["last_sync"]).total_seconds() / 3600
+                st.caption(f"{prov_icon} {provider['name']}: {provider['status']} ({prov_hours:.0f}h ago)")
+            else:
+                st.caption(f"{prov_icon} {provider['name']}: {provider['status']}")
 
 st.divider()
 
