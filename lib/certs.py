@@ -44,29 +44,30 @@ def get_ssl_certificates():
 
     results = []
     status_map = {"OK": "ok", "WARNING": "warning", "CRITICAL": "critical", "ERROR": "error"}
+    now = datetime.now(timezone.utc)
 
     for c in certs:
-        if c.get("status") == "ERROR":
-            results.append({
-                "domain": c["domain"],
-                "expiry": datetime.now(timezone.utc),
-                "status": "error",
-                "error": c.get("error", "Unknown error"),
-            })
-            continue
+        domain = c.get("domain", "unknown")
+        raw_status = c.get("status", "OK")
 
-        try:
-            expiry = datetime.fromisoformat(c["expiry"])
-            if expiry.tzinfo is None:
-                expiry = expiry.replace(tzinfo=timezone.utc)
-        except (KeyError, ValueError):
-            continue
+        expiry = None
+        if c.get("expiry"):
+            try:
+                expiry = datetime.fromisoformat(c["expiry"])
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                expiry = None
+
+        if expiry is None:
+            expiry = now
 
         results.append({
-            "domain": c["domain"],
+            "domain": domain,
             "expiry": expiry,
-            "status": status_map.get(c.get("status", "OK"), "ok"),
+            "status": status_map.get(raw_status, "ok"),
             "issuer": c.get("issuer", ""),
+            "error": c.get("error", "") if raw_status == "ERROR" else "",
         })
 
     return results
