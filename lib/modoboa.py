@@ -147,6 +147,7 @@ class ModoboaClient:
 
     def create_default_accounts(self, domain: str, password: str) -> list[dict]:
         defaults = [
+            {"address": f"admin@{domain}", "first_name": "Admin"},
             {"address": f"postmaster@{domain}", "first_name": "Postmaster"},
             {"address": f"info@{domain}", "first_name": "Info"},
         ]
