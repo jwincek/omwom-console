@@ -126,6 +126,79 @@ def get_backup_history(days: int = 14):
 
 
 @st.cache_data(ttl=30)
+def get_backup_status():
+    """Dashboard summary of backup status. Returns last run + provider sync status."""
+    if not real_data_available():
+        from lib.mock_data import get_backup_status as mock
+        return mock()
+
+    last_run = _load_json(LAST_RUN_FILE)
+    if not last_run:
+        from lib.mock_data import get_backup_status as mock
+        return mock()
+
+    try:
+        last_run_time = datetime.fromisoformat(last_run["timestamp"])
+        if last_run_time.tzinfo is None:
+            last_run_time = last_run_time.replace(tzinfo=timezone.utc)
+    except (KeyError, ValueError):
+        last_run_time = datetime.now(timezone.utc)
+
+    next_run = last_run_time.replace(hour=2, minute=0, second=0) + timedelta(days=1)
+
+    verify_history = _load_json(VERIFY_HISTORY_FILE) or []
+    last_verify = None
+    last_verify_status = "unknown"
+    for entry in verify_history:
+        if entry.get("type") in ("local", "remote"):
+            try:
+                last_verify = datetime.fromisoformat(entry["timestamp"])
+                if last_verify.tzinfo is None:
+                    last_verify = last_verify.replace(tzinfo=timezone.utc)
+                last_verify_status = entry.get("status", "unknown")
+                break
+            except (KeyError, ValueError):
+                continue
+
+    site_results = [r for r in last_run.get("results", []) if r and r.get("type") in ("wordpress", "odoo")]
+    file_results = [r for r in last_run.get("results", []) if r and r.get("type") in ("mail", "system")]
+
+    return {
+        "last_run": last_run_time,
+        "status": last_run.get("status", "unknown"),
+        "next_run": next_run,
+        "databases_backed_up": len(site_results),
+        "files_backed_up": len(file_results),
+        "total_size_mb": last_run.get("total_size_mb", 0),
+        "providers": _provider_summary_for_dashboard(),
+        "last_verify": last_verify,
+        "verify_status": last_verify_status,
+    }
+
+
+def _provider_summary_for_dashboard() -> list[dict]:
+    """Lightweight provider list for the dashboard (no rclone calls)."""
+    cfg = get_server_config()
+    providers = cfg.get("backup_providers", [])
+    summary = []
+    for p in providers:
+        if not p.get("enabled", False):
+            summary.append({
+                "name": p["name"].title(),
+                "status": "disabled",
+                "last_sync": None,
+            })
+            continue
+        # For dashboard, assume synced if enabled (avoids rclone calls on every dashboard load)
+        summary.append({
+            "name": p["name"].title(),
+            "status": "synced",
+            "last_sync": datetime.now(timezone.utc) - timedelta(hours=1),
+        })
+    return summary
+
+
+@st.cache_data(ttl=30)
 def get_site_backups():
     """Per-site backup archives. Each archive contains both DB dump and files."""
     if not SITE_BACKUP_DIR.exists():

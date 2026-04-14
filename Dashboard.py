@@ -10,11 +10,11 @@ from lib.inventory import (
     get_mail_domains,
     inventory_available,
 )
+from lib.backups import get_backup_status, real_data_available as backups_real
+from lib.certs import get_ssl_certificates, get_report_metadata as cert_report_meta, real_data_available as certs_real
 from lib.mock_data import (
     get_server_stats,
     get_services,
-    get_ssl_certificates,
-    get_backup_status,
 )
 
 st.set_page_config(
@@ -26,10 +26,18 @@ st.set_page_config(
 client = get_client()
 
 st.title("OMWOM Console")
+data_warnings = []
 if client.mock_mode:
-    st.caption("Server overview and management dashboard — 🟠 Semaphore: mock mode")
-elif not inventory_available():
-    st.caption("Server overview and management dashboard — 🟠 Inventory: mock data")
+    data_warnings.append("Semaphore: mock")
+if not inventory_available():
+    data_warnings.append("Inventory: mock")
+if not backups_real():
+    data_warnings.append("Backups: mock")
+if not certs_real():
+    data_warnings.append("SSL: mock")
+
+if data_warnings:
+    st.caption("Server overview and management dashboard — 🟠 " + " · ".join(data_warnings))
 else:
     st.caption("Server overview and management dashboard")
 
@@ -46,6 +54,9 @@ backup = get_backup_status()
 alerts = []
 
 for cert in certs:
+    if cert.get("status") == "error":
+        alerts.append(("error", f"SSL check failed for **{cert['domain']}**: {cert.get('error', 'unknown error')} — [Check DNS](/DNS)"))
+        continue
     days_left = (cert["expiry"] - datetime.now(timezone.utc)).days
     if days_left <= 7:
         alerts.append(("error", f"SSL certificate for **{cert['domain']}** expires in {days_left} days — [Check DNS](/DNS)"))
@@ -137,18 +148,22 @@ with right:
             c2.caption(f"{domain['mailboxes']} mailboxes")
 
     st.markdown("### [Backup Status](/Backups)")
-    backup_icon = "🟢" if backup["status"] == "success" else "🔴"
-    verify_icon = "🟢" if backup["verify_status"] == "passed" else "🔴"
+    backup_icon = {"success": "🟢", "partial": "🟠", "failed": "🔴"}.get(backup["status"], "⚪")
+    verify_icon = "🟢" if backup["verify_status"] == "passed" else ("⚪" if backup["verify_status"] == "unknown" else "🟠")
 
     with st.container(border=True):
         b1, b2 = st.columns(2)
         b1.metric("Last Backup", f"{hours_since_backup:.0f}h ago")
-        b2.metric("Databases", backup["databases_backed_up"])
+        b2.metric("Sites", backup["databases_backed_up"])
+
+        verify_label = backup["verify_status"]
+        if verify_label == "unknown":
+            verify_label = "pending"
 
         st.caption(
-            f"{backup_icon} Last run: **{backup['status']}** | "
-            f"{verify_icon} Last verify: **{backup['verify_status']}** | "
-            f"Size: {backup['total_size_mb']:,} MB"
+            f"{backup_icon} Last run: **{backup['status']}** · "
+            f"{verify_icon} Last verify: **{verify_label}** · "
+            f"Size: {backup['total_size_mb']:,.0f} MB"
         )
 
         for provider in backup["providers"]:
@@ -160,6 +175,17 @@ st.divider()
 
 # ── SSL certificates ───────────────────────────────────
 st.markdown("### [SSL Certificates](/DNS)")
+
+cert_meta = cert_report_meta()
+if cert_meta and cert_meta.get("timestamp"):
+    hours_since = (datetime.now(timezone.utc) - cert_meta["timestamp"]).total_seconds() / 3600
+    st.caption(
+        f"Last checked {hours_since:.0f}h ago · "
+        f"{cert_meta['ok']} OK · {cert_meta['warning']} warning · "
+        f"{cert_meta['critical']} critical · {cert_meta['error']} error"
+    )
+elif certs_real():
+    st.caption("Daily check via cert_monitor.py at 6:00 AM")
 
 cert_data = []
 for cert in certs:
@@ -179,6 +205,8 @@ def highlight_cert_status(row):
         return ["background-color: #fee2e2"] * len(row)
     elif row["Status"] == "WARNING":
         return ["background-color: #fef3c7"] * len(row)
+    elif row["Status"] == "ERROR":
+        return ["background-color: #fed7aa"] * len(row)
     return [""] * len(row)
 
 
