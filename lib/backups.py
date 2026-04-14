@@ -51,9 +51,6 @@ def get_backup_history(days: int = 14):
         from lib.mock_backups import get_backup_history as mock
         return mock(days=days)
 
-    last_run = _load_json(LAST_RUN_FILE) or {}
-
-    history = []
     try:
         with open(BACKUP_LOG, "r") as f:
             content = f.read()
@@ -61,15 +58,23 @@ def get_backup_history(days: int = 14):
         from lib.mock_backups import get_backup_history as mock
         return mock(days=days)
 
-    runs = re.split(r"={50}\nBackup run started", content)[1:]
+    # Match: "YYYY-MM-DD HH:MM:SS [INFO] Backup run started"
+    start_pattern = re.compile(
+        r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) \[INFO\] Backup run started",
+        re.MULTILINE,
+    )
+    starts = list(start_pattern.finditer(content))
 
-    for run in runs[:days]:
-        date_match = re.search(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})", run, re.MULTILINE)
-        if not date_match:
-            continue
+    history = []
+    for i, m in enumerate(reversed(starts[-days:])):
+        run_start = m.start()
+        # Find next run's start (or end of file)
+        next_starts = [s.start() for s in starts if s.start() > run_start]
+        run_end = min(next_starts) if next_starts else len(content)
+        run = content[run_start:run_end]
 
         run_time = datetime.strptime(
-            f"{date_match.group(1)} {date_match.group(2)}",
+            f"{m.group(1)} {m.group(2)}",
             "%Y-%m-%d %H:%M:%S",
         ).replace(tzinfo=timezone.utc)
 
@@ -86,10 +91,18 @@ def get_backup_history(days: int = 14):
 
         status_match = re.search(r"Status: (\w+)", run)
         raw_status = (status_match.group(1) if status_match else "unknown").lower()
-        status = {"success": "success", "partial": "partial"}.get(raw_status, "failed")
+        if raw_status == "success":
+            status = "success"
+        elif raw_status == "partial":
+            status = "partial"
+        else:
+            status = "failed"
 
-        databases = len(re.findall(r"\.(?:sql|custom)\.gz \(", run))
-        files_count = archive_count - databases if archive_count > databases else archive_count
+        # Count site backups (each WordPress/Odoo line creates one archive)
+        site_backups = len(re.findall(r"Backing up (?:WordPress site|Odoo instance):", run))
+        # Other archives (mail, system) make up the difference
+        files_count = max(0, archive_count - site_backups)
+        databases = site_backups
 
         error_lines = re.findall(r"\[ERROR\] (.+)", run)
         error_detail = " | ".join(error_lines[:3]) if error_lines else ""
@@ -109,7 +122,48 @@ def get_backup_history(days: int = 14):
         from lib.mock_backups import get_backup_history as mock
         return mock(days=days)
 
-    return history[:days]
+    return history
+
+
+@st.cache_data(ttl=30)
+def get_site_backups():
+    """Per-site backup archives. Each archive contains both DB dump and files."""
+    if not SITE_BACKUP_DIR.exists():
+        return []
+
+    sites = []
+
+    for kind, db_type in [("wordpress", "MariaDB"), ("odoo", "PostgreSQL")]:
+        kind_dir = SITE_BACKUP_DIR / kind
+        if not kind_dir.exists():
+            continue
+
+        for site_dir in sorted(kind_dir.iterdir()):
+            if not site_dir.is_dir():
+                continue
+
+            archives = sorted(site_dir.glob("*.tar.gz"), reverse=True)
+            if not archives:
+                continue
+
+            latest = archives[0]
+            size_mb = latest.stat().st_size / 1024 / 1024
+            mtime = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc)
+
+            total_size = sum(a.stat().st_size for a in archives) / 1024 / 1024
+
+            sites.append({
+                "name": site_dir.name,
+                "type": kind,
+                "db_type": db_type,
+                "latest_archive": latest.name,
+                "size_mb": round(size_mb, 1),
+                "last_backup": mtime,
+                "archive_count": len(archives),
+                "total_size_mb": round(total_size, 1),
+            })
+
+    return sites
 
 
 @st.cache_data(ttl=30)

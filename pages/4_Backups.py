@@ -6,6 +6,7 @@ from lib.database import log_activity
 from lib.semaphore import get_client
 from lib.backups import (
     get_backup_history,
+    get_site_backups,
     get_database_backups,
     get_file_backups,
     get_provider_status,
@@ -39,8 +40,8 @@ hours_since = (now - latest["date"]).total_seconds() / 3600
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Last Backup", f"{hours_since:.0f}h ago")
 m2.metric("Status", f"{latest_status_icon} {latest['status'].title()}")
-m3.metric("Databases", f"{latest['databases']}")
-m4.metric("Total Size", f"{latest['size_mb']:,} MB")
+m3.metric("Sites", f"{latest['databases']}")
+m4.metric("Total Size", f"{latest['size_mb']:,.1f} MB")
 m5.metric("Providers", f"{sum(1 for p in providers if p['status'] == 'synced')}/{len(providers)} synced")
 
 # ── Manual backup ───────────────────────────────────────
@@ -164,11 +165,12 @@ for h in reversed(history):
 
     chart_rows.append({
         "Date": h["date"].strftime("%m/%d"),
+        "Time": h["date"].strftime("%H:%M"),
         "Size (MB)": h["size_mb"],
         "Duration": f"{mins}m {secs}s",
         "Duration (sec)": h["duration_sec"],
-        "Databases": h["databases"],
-        "Files": h["files"],
+        "Sites": h["databases"],
+        "Other": h["files"],
         "Status": h["status"],
         "Status Icon": f"{status_icon} {h['status']}",
         "Delta": f"{'+' if delta >= 0 else ''}{delta} MB",
@@ -216,7 +218,7 @@ with tab_dual:
     st.caption("Bars = backup size (left axis) · Line = duration (right axis)")
 
 with tab_table:
-    table_data = chart_data[["Date", "Status Icon", "Size (MB)", "Delta", "Duration", "Databases", "Files"]].copy()
+    table_data = chart_data[["Date", "Time", "Status Icon", "Size (MB)", "Delta", "Duration", "Sites", "Other"]].copy()
     table_data = table_data.rename(columns={"Status Icon": "Status"})
 
     def highlight_backup_status(row):
@@ -239,34 +241,58 @@ if problem_days:
     st.subheader("Issues")
     for day in problem_days:
         status_icon = {"partial": "🟠", "failed": "🔴"}.get(day["Status"], "⚪")
-        with st.expander(f"{status_icon} {day['Date']} — {day['Status']}"):
+        with st.expander(f"{status_icon} {day['Date']} {day['Time']} — {day['Status']}"):
             st.markdown(day["error_detail"])
-            st.caption(f"Size: {day['Size (MB)']:,} MB · Duration: {day['Duration']} · DBs: {day['Databases']}/8 · Files: {day['Files']}/5")
+            st.caption(f"Size: {day['Size (MB)']:,} MB · Duration: {day['Duration']} · Sites: {day['Sites']} · Other archives: {day['Other']}")
 
 st.divider()
 
-# ── Database backups ────────────────────────────────────
-left, right = st.columns(2)
+# ── Site backups ────────────────────────────────────────
+st.subheader("Site Backups")
+st.caption("Each archive contains the database dump and site files for the named site.")
 
-with left:
-    st.subheader("Database Backups")
+site_backups = get_site_backups()
 
-    for db in db_backups:
-        hours_ago = (now - db["last_backup"]).total_seconds() / 3600
-        checksum_icon = "🟢" if db["checksum_ok"] else "🔴"
-        db_type_label = "MySQL" if db["type"] == "mariadb" else "PG"
+if not site_backups:
+    if real_data_available():
+        st.info("No per-site backup archives found in `/var/backups/sites/`. Run a backup to create one.")
+    else:
+        # Local dev — fall back to showing combined database backups
+        for db in db_backups:
+            hours_ago = (now - db["last_backup"]).total_seconds() / 3600
+            db_type_label = "MariaDB" if db["type"] == "mariadb" else "PostgreSQL"
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([3, 1, 1])
+                c1.markdown(f"**{db['database']}** ({db_type_label})")
+                c2.caption(f"{db['size_mb']} MB")
+                c3.caption(f"🟢 {hours_ago:.0f}h ago")
+else:
+    type_groups = {}
+    for sb in site_backups:
+        type_groups.setdefault(sb["type"], []).append(sb)
 
-        with st.container(border=True):
-            c1, c2, c3 = st.columns([3, 1, 1])
-            c1.markdown(f"**{db['database']}** ({db_type_label})")
-            c2.caption(f"{db['size_mb']} MB")
-            c3.caption(f"{checksum_icon} {hours_ago:.0f}h ago")
+    type_order = [("wordpress", "WordPress"), ("odoo", "Odoo")]
+    for type_key, type_label in type_order:
+        if type_key not in type_groups:
+            continue
 
-# ── File backups ────────────────────────────────────────
-with right:
-    st.subheader("File Backups")
+        st.markdown(f"**{type_label}**")
+        for sb in type_groups[type_key]:
+            hours_ago = (now - sb["last_backup"]).total_seconds() / 3600
+            age_icon = "🟢" if hours_ago < 48 else ("🟠" if hours_ago < 168 else "🔴")
 
-    file_backups = get_file_backups()
+            with st.container(border=True):
+                c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+                c1.markdown(f"**{sb['name']}** — `{sb['db_type']}`")
+                c2.caption(f"{sb['size_mb']:.1f} MB")
+                c3.caption(f"{sb['archive_count']} archive{'s' if sb['archive_count'] != 1 else ''}")
+                c4.caption(f"{age_icon} {hours_ago:.0f}h ago")
+                st.caption(f"Latest: `{sb['latest_archive']}` · Total kept: {sb['total_size_mb']:.1f} MB")
+
+# ── Other backups (mail, system) ────────────────────────
+file_backups = get_file_backups()
+if file_backups:
+    st.markdown("**Other**")
     for fb in file_backups:
         hours_ago = (now - fb["last_backup"]).total_seconds() / 3600
         age_icon = "🟢" if hours_ago < 48 else ("🟠" if hours_ago < 168 else "🔴")
@@ -276,7 +302,7 @@ with right:
             c1.markdown(f"**{fb['name']}**")
             c2.caption(f"{fb['size_mb']:,} MB")
             c3.caption(f"{age_icon} {hours_ago:.0f}h ago")
-            st.caption(f"`{fb['path']}` — {fb['files']:,} files")
+            st.caption(f"Source: `{fb['path']}`")
 
 st.divider()
 
@@ -317,44 +343,51 @@ with ver_col:
     st.subheader("Verification History")
 
     verifications = get_verification_history()
-    ver_data = []
-    for v in verifications:
-        status_icon = "🟢" if v["status"] == "passed" else "🟠"
-        ver_data.append({
-            "Date": v["date"].strftime("%Y-%m-%d"),
-            "Type": v["type"].title(),
-            "Status": f"{status_icon} {v['status'].title()}",
-            "Files": v["files_checked"],
-            "Errors": v["errors"],
-            "Time": f"{v['duration_sec']}s",
-        })
 
-    st.dataframe(pd.DataFrame(ver_data), width="stretch", hide_index=True)
+    if not verifications:
+        st.info("No verifications recorded yet. Local checksums run daily at 5:00 AM.")
+    else:
+        ver_data = []
+        for v in verifications:
+            status_icon = "🟢" if v["status"] == "passed" else "🟠"
+            ver_data.append({
+                "Date": v["date"].strftime("%Y-%m-%d %H:%M"),
+                "Type": v["type"].title(),
+                "Status": f"{status_icon} {v['status'].title()}",
+                "Files": v["files_checked"],
+                "Errors": v["errors"],
+                "Time": f"{v['duration_sec']}s",
+            })
+        st.dataframe(pd.DataFrame(ver_data), width="stretch", hide_index=True)
+
+    st.caption(
+        "Verification confirms that backup files haven't been corrupted. "
+        "Local checks compare SHA256 checksums; remote checks compare file sizes against B2."
+    )
 
 with restore_col:
     st.subheader("Restore Tests")
 
     restore_tests = get_restore_tests()
-    if restore_tests:
-        for rt in restore_tests:
+
+    if not restore_tests:
+        st.info(
+            "No restore tests recorded yet. The first scheduled test runs on the 1st of next month at 7:00 AM."
+        )
+    else:
+        for rt in restore_tests[:5]:
             status_icon = "🟢" if rt["status"] == "passed" else "🔴"
             with st.container(border=True):
                 st.markdown(f"{status_icon} **{rt['database']}** — {rt['date'].strftime('%Y-%m-%d')}")
                 st.caption(
-                    f"Restored in {rt['restore_time_sec']}s | "
+                    f"Restored in {rt['restore_time_sec']}s · "
                     f"Row count match: {'Yes' if rt['row_count_match'] else 'No'}"
                 )
 
-        next_test = "1st of next month (per cron schedule)"
-        st.caption(f"Next scheduled restore test: {next_test}")
-    else:
-        st.info("No restore tests recorded yet.")
-
-    st.markdown("")
     st.caption(
         "Restore tests run monthly via `backup_verify.py restore-test`. "
-        "They restore a random database to a temporary instance, verify row counts, "
-        "then drop the test database."
+        "They pick a random archive, restore the database to a temporary instance, "
+        "verify row counts, then drop the test database."
     )
 
 # ── Cron schedule reference ─────────────────────────────
