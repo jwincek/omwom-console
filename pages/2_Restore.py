@@ -115,18 +115,41 @@ elif source_mode == "Softaculous server path":
                 st.error("File must be a .tar.gz archive")
                 st.stop()
 
-            st.session_state._backup_path = server_path
-            st.session_state._upload_name = os.path.basename(server_path)
+            server_file = Path(server_path)
+            if not server_file.exists():
+                st.error(f"File not found on server: {server_path}")
+                st.stop()
 
-            if client.mock_mode:
-                st.info(
-                    f"Mock mode: can't read server files. "
-                    f"In production, the console would parse metadata from `{server_path}` via Semaphore."
-                )
+            try:
+                file_size = server_file.stat().st_size
+            except (OSError, PermissionError) as e:
+                st.error(f"Could not access file on server: {e}")
                 st.stop()
-            else:
-                st.info(f"Would parse metadata from `{server_path}` on the server")
+
+            with st.spinner(f"Parsing {server_file.name} ({file_size / 1024 / 1024:.0f} MB)..."):
+                try:
+                    info = parse_backup_file(server_file.read_bytes())
+                except (OSError, PermissionError) as e:
+                    st.error(f"Could not read file: {e}")
+                    st.stop()
+                except MemoryError:
+                    st.error(
+                        f"File is too large to parse in memory ({file_size / 1024 / 1024 / 1024:.1f} GB). "
+                        f"For very large backups, the metadata extraction needs to happen on the server "
+                        f"via a streaming parser — not yet implemented."
+                    )
+                    st.stop()
+
+            if info is None:
+                st.error("Could not parse this file. Is it a Softaculous WordPress Manager backup?")
                 st.stop()
+
+            st.session_state._backup_info = info
+            st.session_state._last_upload = server_file.name
+            st.session_state._upload_name = server_file.name
+            st.session_state._upload_size_mb = file_size / 1024 / 1024
+            st.session_state._backup_path = server_path
+            st.session_state.pop("_restore_done", None)
 
 elif source_mode == "Internal backup":
     st.caption("Restore an existing site from a backup created by `backup_manager.py`.")
