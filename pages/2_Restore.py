@@ -334,6 +334,8 @@ if "_restore_done" in st.session_state:
                 "wp_php": p["wp_php"],
                 "backup_file": backup_path,
             }
+            if p.get("force_restore"):
+                extra_vars["force_restore"] = True
 
         if client.mock_mode:
             st.write(f"Mock: would call Semaphore → `{playbook}`:")
@@ -540,6 +542,19 @@ restore_add_mailboxes = st.checkbox(
     disabled=not restore_add_mail,
 )
 
+st.markdown("**Advanced options**")
+force_restore = st.checkbox(
+    "Force restore (overwrite existing site)",
+    value=False,
+    key="restore_force",
+    help=(
+        "Skip the 'site already exists' check and overwrite. Use this to retry "
+        "after a partial restore (e.g., when SSL or another late step failed). "
+        "The existing database will be dropped and reimported, files will be overwritten, "
+        "and configs will be regenerated. The existing database password is preserved."
+    ),
+)
+
 # ── Restore button ──────────────────────────────────────
 if st.button("Restore site", type="primary", disabled=not (name_valid and domain_valid)):
     log_activity(
@@ -559,6 +574,7 @@ if st.button("Restore site", type="primary", disabled=not (name_valid and domain
         "site_name": info["site_name"],
         "add_mail": restore_add_mail,
         "add_mailboxes": restore_add_mailboxes,
+        "force_restore": force_restore,
         "file_name": upload_name,
         "file_size_mb": upload_size_mb,
         "backup_path": backup_path,
