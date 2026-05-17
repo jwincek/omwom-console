@@ -109,7 +109,7 @@ Or trigger deploys from Semaphore using the included `console-deploy.yml` playbo
 The console is a **viewer and trigger**, not a data owner. It reads from existing sources (Semaphore API, Modoboa API, server health scripts, DNS) and triggers actions through Semaphore task templates. The only local state is a SQLite activity log.
 
 ```
-Browser → Nginx (basic auth + SSL) → Streamlit (port 8073)
+Browser → Nginx (basic auth + SSL) → Streamlit (port 8501)
                                           ├── Semaphore API (ops.omwom.com)
                                           │     └── Ansible playbooks
                                           ├── Modoboa API (mail.omwom.com)

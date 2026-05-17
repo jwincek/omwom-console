@@ -86,7 +86,7 @@ Verify:
 
 ```bash
 sudo systemctl status omwom-console
-curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8073/
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8501/
 # Should return 200
 ```
 
