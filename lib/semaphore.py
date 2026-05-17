@@ -206,6 +206,10 @@ class MockSemaphoreClient:
             {"id": 11, "name": "Odoo Toggle", "playbook": "odoo-toggle.yml"},
             {"id": 12, "name": "Run Backup", "playbook": "backup-run.yml"},
             {"id": 13, "name": "Verify Backups", "playbook": "backup-verify.yml"},
+            {"id": 14, "name": "Add Oil Region Hub", "playbook": "oilregion-hub-add.yml"},
+            {"id": 15, "name": "Update Oil Region Hub", "playbook": "oilregion-hub-update.yml"},
+            {"id": 16, "name": "Oil Region Hub Toggle", "playbook": "oilregion-hub-toggle.yml"},
+            {"id": 17, "name": "Remove Oil Region Hub", "playbook": "oilregion-hub-remove.yml"},
         ]
 
     def get_template(self, template_id: int) -> dict:

@@ -121,6 +121,30 @@ def get_mail_domains() -> list[dict]:
     ]
 
 
+@st.cache_data(ttl=300)
+def get_oilregion_hubs() -> list[dict]:
+    inv = _load_inventory()
+    if inv is None:
+        from lib.mock_data import get_oilregion_hubs as mock
+        return mock()
+
+    hubs = inv.get("oilregion_hubs") or []
+    return [
+        {
+            "name": h.get("name", ""),
+            "domain": h.get("domain", ""),
+            "port": h.get("port", 8100),
+            "status": "running",
+            "db_name": h.get("db_name", f"{h.get('name', '')}_db"),
+            "redis_db": h.get("redis_db", 3),
+            "python_version": h.get("python_version", "3.13"),
+            "repo_url": h.get("repo_url", ""),
+            "repo_branch": h.get("repo_branch", "main"),
+        }
+        for h in hubs
+    ]
+
+
 def get_management_subdomains() -> list[dict]:
     inv = _load_inventory()
     if inv is None:

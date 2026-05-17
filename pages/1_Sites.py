@@ -6,7 +6,7 @@ import streamlit as st
 from lib.database import log_activity
 from lib.semaphore import get_client
 from lib.modoboa import get_modoboa_client
-from lib.inventory import get_wordpress_sites, get_odoo_instances, get_mail_domains, inventory_available
+from lib.inventory import get_wordpress_sites, get_odoo_instances, get_oilregion_hubs, get_mail_domains, inventory_available
 
 st.set_page_config(page_title="Sites - OMWOM Console", page_icon=":satellite:", layout="wide")
 
@@ -38,6 +38,7 @@ qp_domain = st.query_params.get("domain", "")
 # ── Data ────────────────────────────────────────────────
 wp_sites = get_wordpress_sites()
 odoo_instances = get_odoo_instances()
+oilregion_hubs = get_oilregion_hubs()
 mail_domains = get_mail_domains()
 
 # Build a lookup: domain → mail accounts
@@ -50,9 +51,10 @@ for md in mail_domains:
         for a in accts
     ]
 
-tab_wp, tab_odoo, tab_mail = st.tabs([
+tab_wp, tab_odoo, tab_hub, tab_mail = st.tabs([
     f"WordPress ({len(wp_sites)})",
     f"Odoo ({len(odoo_instances)})",
+    f"Hub ({len(oilregion_hubs)})",
     f"Mail ({len(mail_domains)})",
 ])
 
@@ -488,6 +490,248 @@ with tab_odoo:
                                 st.code(
                                     f"postmaster@{odoo_domain}  /  {default_pass}\n"
                                     f"info@{odoo_domain}        /  {default_pass}",
+                                    language="text",
+                                )
+                                st.caption("Save these credentials. Change them after first login.")
+                        except Exception as e:
+                            st.warning(
+                                f"Mailbox creation via Modoboa API failed: {e}. "
+                                f"Create them manually at [mail.omwom.com](https://mail.omwom.com/)."
+                            )
+
+# ── Hub tab ─────────────────────────────────────────────
+with tab_hub:
+    for hub in oilregion_hubs:
+        status_icon = "🟢" if hub["status"] == "running" else "🔴"
+        is_focus = qp_tab == "hub" and qp_site == hub["name"]
+        with st.expander(f"{status_icon} **{hub['domain']}** ({hub['name']})", expanded=is_focus):
+            info_col, actions_col = st.columns([3, 2])
+
+            with info_col:
+                st.markdown(f"**Hub ID:** `{hub['name']}`")
+                st.markdown(f"**Domain:** {hub['domain']}")
+                st.markdown(f"**Python:** {hub['python_version']}")
+                st.markdown(f"**Port:** {hub['port']} (gunicorn, 127.0.0.1)")
+                st.markdown(f"**Database:** `{hub['db_name']}`")
+                if hub.get("repo_branch"):
+                    st.caption(
+                        f"Branch: `{hub['repo_branch']}` · App: `/var/www/{hub['name']}/app`"
+                    )
+                else:
+                    st.caption(f"App: `/var/www/{hub['name']}/app`")
+                st.markdown(
+                    f"[Open site →](https://{hub['domain']}) · "
+                    f"[Wagtail →](https://{hub['domain']}/cms/) · "
+                    f"[Admin dashboard →](https://{hub['domain']}/dashboard/)"
+                )
+
+                hub_mail = mail_by_domain.get(hub["domain"], [])
+                if hub_mail:
+                    st.markdown(f"**Email** ({len(hub_mail)} accounts)")
+                    for acct in hub_mail:
+                        st.caption(f"📧 `{acct['address']}` — {acct['name']}")
+                else:
+                    st.caption("📧 No email accounts — [Add domain in Modoboa](https://mail.omwom.com/#/domains/)")
+
+            with actions_col:
+                # ── Start / Stop ────────────────────────
+                is_running = hub["status"] == "running"
+                toggle_label = "Stop hub" if is_running else "Start hub"
+                toggle_action = "stop" if is_running else "start"
+
+                if st.button(
+                    toggle_label,
+                    key=f"toggle_hub_{hub['name']}",
+                    type="secondary" if is_running else "primary",
+                ):
+                    log_activity(
+                        "oilregion",
+                        "hub_stopped" if toggle_action == "stop" else "hub_started",
+                        f"{toggle_action.title()} {hub['name']} ({hub['domain']})",
+                    )
+                    if client.mock_mode:
+                        st.info(
+                            f"Mock: would trigger `oilregion-hub-toggle.yml` "
+                            f"with `hub_action={toggle_action}`"
+                        )
+                    else:
+                        client.run_playbook("oilregion-hub-toggle.yml", extra_vars={
+                            "hub_name": hub["name"],
+                            "hub_action": toggle_action,
+                        })
+                        st.success(f"Hub {toggle_action} triggered")
+
+                # ── Update (git pull + migrate) ─────────
+                if st.button(
+                    "Update (git pull + migrate)",
+                    key=f"update_hub_{hub['name']}",
+                ):
+                    log_activity(
+                        "oilregion",
+                        "hub_updated",
+                        f"Update {hub['name']} (pull + migrate + restart)",
+                    )
+                    if client.mock_mode:
+                        st.info(
+                            f"Mock: would trigger `oilregion-hub-update.yml` "
+                            f"for `{hub['name']}`"
+                        )
+                    else:
+                        client.run_playbook("oilregion-hub-update.yml", extra_vars={
+                            "hub_name": hub["name"],
+                        })
+                        st.success("Update triggered")
+
+                # ── Quick backup ────────────────────────
+                if st.button(
+                    f"Backup {hub['db_name']}",
+                    key=f"backup_hub_{hub['name']}",
+                ):
+                    log_activity("backup", "backup_triggered",
+                                 f"Quick backup: {hub['db_name']} ({hub['domain']})")
+                    if client.mock_mode:
+                        st.success(f"Mock: would backup `{hub['db_name']}` (local, no upload)")
+                    else:
+                        client.run_playbook("backup-run.yml", extra_vars={
+                            "backup_scope": "single",
+                            "backup_database": hub["db_name"],
+                            "backup_skip_upload": True,
+                        })
+                        st.success(f"Backup of `{hub['db_name']}` triggered")
+
+            # ── Remove ──────────────────────────────────
+            st.divider()
+            if st.button(f"Remove {hub['name']}", key=f"remove_hub_{hub['name']}", type="secondary"):
+                st.session_state[f"_confirm_remove_hub_{hub['name']}"] = True
+
+            if st.session_state.get(f"_confirm_remove_hub_{hub['name']}"):
+                st.warning(
+                    f"This will remove **{hub['domain']}** ({hub['name']}), "
+                    f"including its database, app dir, venv, media uploads, systemd services, "
+                    f"Nginx vhost, and SSL cert. Pre-deletion archives "
+                    f"(DB + media + app) are written to `/var/backups/removed_{hub['name']}_*`."
+                )
+                cc1, cc2 = st.columns(2)
+                if cc1.button(
+                    f"Confirm removal", key=f"confirm_hub_{hub['name']}", type="primary"
+                ):
+                    log_activity("oilregion", "hub_removed",
+                                 f"Removed {hub['name']} ({hub['domain']})")
+                    if client.mock_mode:
+                        st.info("Mock: would trigger `oilregion-hub-remove.yml`")
+                        st.session_state.pop(f"_confirm_remove_hub_{hub['name']}", None)
+                    else:
+                        with st.status(f"Removing {hub['name']}...", expanded=True) as status:
+                            task = client.run_playbook("oilregion-hub-remove.yml", extra_vars={
+                                "hub_name": hub["name"],
+                                "hub_domain": hub["domain"],
+                                "confirm_delete": "YES",
+                            })
+                            st.write(f"Semaphore task #{task['id']} started")
+                            result = client.wait_for_task(task["id"], timeout=300)
+                            if result["status"] == "success":
+                                status.update(label=f"{hub['name']} removed", state="complete")
+                            else:
+                                status.update(label=f"Removal failed: {result['status']}", state="error")
+
+                        st.session_state.pop(f"_confirm_remove_hub_{hub['name']}", None)
+                        get_oilregion_hubs.clear()
+                        st.rerun()
+
+                if cc2.button("Cancel", key=f"cancel_hub_{hub['name']}"):
+                    st.session_state.pop(f"_confirm_remove_hub_{hub['name']}", None)
+                    st.rerun()
+
+    st.divider()
+
+    # ── Add Hub instance ────────────────────────────────
+    with st.expander("➕ Add Oil Region Hub"):
+        hub_name = st.text_input(
+            "Hub identifier", max_chars=32, placeholder="oilhub",
+            help="Lowercase letters, digits, hyphens, underscores. 2-32 chars.",
+            key="add_hub_name",
+        )
+        hub_domain = st.text_input(
+            "Domain", placeholder="oilregionindie.com", key="add_hub_domain",
+        )
+
+        h_name_valid = bool(hub_name and re.match(r"^[a-z][a-z0-9_-]{1,31}$", hub_name))
+        h_domain_valid = bool(
+            hub_domain and re.match(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z]{2,})+$", hub_domain)
+        )
+        h_name_taken = any(h["name"] == hub_name for h in oilregion_hubs)
+
+        if hub_name and h_name_taken:
+            st.warning(f"Hub identifier `{hub_name}` is already in use.")
+        if hub_name and not h_name_valid:
+            st.warning(
+                "Must be 2-32 lowercase chars (letters, digits, hyphens, underscores), "
+                "starting with a letter."
+            )
+
+        st.markdown("**Email setup** (recommended — the hub sends transactional email)")
+        add_hub_mail = st.checkbox(
+            "Also create mail domain",
+            value=True,
+            key="add_hub_mail_domain",
+            help="Adds the domain to Modoboa so the hub can send digests, booking notifications, etc.",
+        )
+        add_hub_default_mailboxes = st.checkbox(
+            "Create default mailboxes (postmaster, info)",
+            value=True,
+            key="add_hub_default_mailboxes",
+            disabled=not add_hub_mail,
+        )
+
+        can_add_hub = h_name_valid and h_domain_valid and not h_name_taken
+
+        if st.button("Add Oil Region Hub", type="primary", disabled=not can_add_hub, key="btn_add_hub"):
+            log_activity("oilregion", "hub_added", f"Added {hub_name} ({hub_domain})")
+
+            # Step 1: Hub install
+            if client.mock_mode:
+                st.success(
+                    f"Mock: would trigger `oilregion-hub-add.yml` with "
+                    f"`hub_name={hub_name}`, `hub_domain={hub_domain}`"
+                )
+                st.caption("Port and Redis DB will be auto-assigned by the playbook.")
+            else:
+                task = client.run_playbook("oilregion-hub-add.yml", extra_vars={
+                    "hub_name": hub_name, "hub_domain": hub_domain,
+                })
+                st.success(f"Hub provisioning triggered (task #{task['id']})")
+            st.caption(
+                f"After provisioning completes, run `createsuperuser` for the first admin user — "
+                f"see `/root/.credentials/{hub_name}.txt` on the server."
+            )
+
+            # Step 2: Mail domain (if enabled)
+            if add_hub_mail:
+                log_activity("mail", "domain_added", f"Auto-added {hub_domain} with hub")
+                if client.mock_mode:
+                    st.info(f"Mock: would trigger `mail-add-domain.yml` for `{hub_domain}`")
+                else:
+                    mail_task = client.run_playbook("mail-add-domain.yml", extra_vars={
+                        "mail_domain": hub_domain,
+                    })
+                    st.success(f"Mail domain addition triggered (task #{mail_task['id']})")
+
+                if add_hub_default_mailboxes:
+                    default_pass = generate_password()
+                    log_activity("mail", "default_mailboxes_created",
+                                 f"postmaster@{hub_domain}, info@{hub_domain}")
+
+                    if modoboa.mock_mode:
+                        st.info(f"Mock: would create `postmaster@{hub_domain}` and `info@{hub_domain}`")
+                    else:
+                        try:
+                            modoboa.create_default_accounts(hub_domain, default_pass)
+                            st.success(f"Default mailboxes created for {hub_domain}")
+                            with st.container(border=True):
+                                st.markdown(f"**Default mailbox credentials for `{hub_domain}`**")
+                                st.code(
+                                    f"postmaster@{hub_domain}  /  {default_pass}\n"
+                                    f"info@{hub_domain}        /  {default_pass}",
                                     language="text",
                                 )
                                 st.caption("Save these credentials. Change them after first login.")

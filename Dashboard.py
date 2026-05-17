@@ -7,10 +7,11 @@ from lib.semaphore import get_client
 from lib.inventory import (
     get_wordpress_sites,
     get_odoo_instances,
+    get_oilregion_hubs,
     get_mail_domains,
     inventory_available,
 )
-from lib.backups import get_backup_status, real_data_available as backups_real
+from lib.backups import get_backup_status, get_rclone_status, real_data_available as backups_real
 from lib.certs import get_ssl_certificates, get_report_metadata as cert_report_meta, real_data_available as certs_real
 from lib.modoboa import get_modoboa_client
 from lib.server_stats import get_server_stats, get_services, real_data_available as stats_real
@@ -46,6 +47,7 @@ stats = get_server_stats()
 services = get_services()
 wp_sites = get_wordpress_sites()
 odoo_instances = get_odoo_instances()
+oilregion_hubs = get_oilregion_hubs()
 mail_domains = get_mail_domains()
 certs = get_ssl_certificates()
 backup = get_backup_status()
@@ -71,6 +73,29 @@ elif hours_since_backup > 26:
 
 if backup["verify_status"] not in ("passed", "unknown"):
     alerts.append(("error", f"Backup verification **{backup['verify_status']}** — [View Backups](/Backups)"))
+
+# rclone config — the single key to restoring encrypted off-site backups.
+# Surfaced as alerts so a forgotten DR copy doesn't quietly rot.
+rclone = get_rclone_status()
+if rclone:
+    if not rclone.get("config_exists"):
+        alerts.append(("error", "rclone config **missing** — encrypted backups cannot be restored. [See runbook §13.8](/Backups)"))
+    elif not rclone.get("perms_secure"):
+        alerts.append(("warning", f"rclone config permissions **{rclone.get('perms_octal','?')}** — should be 0600. Run `chmod 600 {rclone.get('config_path','')}`"))
+    elif not rclone.get("rclone_parseable"):
+        alerts.append(("error", f"rclone config **unparseable** — {rclone.get('rclone_error','?')}"))
+    else:
+        ack = rclone.get("offsite_ack") or {}
+        if not ack.get("acked"):
+            alerts.append(("warning", "rclone config has **never been acknowledged as backed up off-box** — if this server is lost, encrypted backups are unrecoverable. [See runbook §13.8](/Backups)"))
+        elif not ack.get("matches_current"):
+            alerts.append(("warning", f"rclone config **changed since last off-site backup** ({ack.get('days_since_ack','?')}d ago) — re-copy to your off-box location and re-acknowledge"))
+        elif ack.get("stale"):
+            alerts.append(("warning", f"rclone config off-site backup is **{ack.get('days_since_ack','?')} days old** — verify your off-box copy still exists and re-acknowledge"))
+
+        for p in rclone.get("providers", []):
+            if p.get("enabled") and p.get("reachable") is False:
+                alerts.append(("warning", f"rclone provider **{p['name']}** unreachable — {p.get('error','?')[:80]}"))
 
 # Resource alerts
 ram_pct = stats.get("ram_percent", 0)
@@ -100,6 +125,10 @@ for site in down_wp:
 down_odoo = [i for i in odoo_instances if i["status"] != "running"]
 for inst in down_odoo:
     alerts.append(("warning", f"Odoo instance **{inst['domain']}** is {inst['status']} — [Manage Sites](/Sites)"))
+
+down_hubs = [h for h in oilregion_hubs if h["status"] != "running"]
+for hub in down_hubs:
+    alerts.append(("warning", f"Hub instance **{hub['domain']}** is {hub['status']} — [Manage Sites](/Sites)"))
 
 if alerts:
     error_alerts = [a for a in alerts if a[0] == "error"]
@@ -157,6 +186,19 @@ with left:
             c2.caption(f"Odoo {inst['version']} / port {inst['port']}")
             c3.markdown(f"{status_icon} {inst['status']}")
             st.caption(f"[Open site](https://{inst['domain']})")
+
+    st.markdown("### [Oil Region Hub](/Sites?tab=hub)")
+    for hub in oilregion_hubs:
+        status_icon = "🟢" if hub["status"] == "running" else "🔴"
+        with st.container(border=True):
+            c1, c2, c3 = st.columns([3, 2, 1])
+            c1.markdown(f"**{hub['domain']}** — [Manage →](/Sites?tab=hub&site={hub['name']})")
+            c2.caption(f"Python {hub['python_version']} / port {hub['port']}")
+            c3.markdown(f"{status_icon} {hub['status']}")
+            st.caption(
+                f"[Open site](https://{hub['domain']}) · "
+                f"[Wagtail](https://{hub['domain']}/cms/)"
+            )
 
 with right:
     st.markdown("### [Mail Domains](/Sites?tab=mail)")
@@ -286,11 +328,14 @@ with st.sidebar:
 
     wp_running = sum(1 for s in wp_sites if s["status"] == "running")
     odoo_running = sum(1 for s in odoo_instances if s["status"] == "running")
+    hub_running = sum(1 for h in oilregion_hubs if h["status"] == "running")
     svc_running = sum(1 for s in services if s["status"] == "running")
     certs_ok = sum(1 for c in certs if c["status"] == "ok")
 
     st.markdown(f"[**{wp_running}/{len(wp_sites)}** WordPress sites up](/Sites)")
     st.markdown(f"[**{odoo_running}/{len(odoo_instances)}** Odoo instances up](/Sites)")
+    if oilregion_hubs:
+        st.markdown(f"[**{hub_running}/{len(oilregion_hubs)}** Hub instances up](/Sites?tab=hub)")
     st.markdown(f"[**{len(mail_domains)}** mail domains](/Sites)")
     st.markdown(f"[**{svc_running}/{len(services)}** core services up](/Health)")
     st.markdown(f"[**{certs_ok}/{len(certs)}** SSL certs OK](/DNS)")

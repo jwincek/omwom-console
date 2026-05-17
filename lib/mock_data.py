@@ -72,6 +72,22 @@ def get_odoo_instances():
     ]
 
 
+def get_oilregion_hubs():
+    return [
+        {
+            "name": "oilhub",
+            "domain": "oilregionindie.com",
+            "port": 8100,
+            "status": "running",
+            "db_name": "oilhub_db",
+            "redis_db": 3,
+            "python_version": "3.13",
+            "repo_url": "https://github.com/jwincek/oilregionindie.com.git",
+            "repo_branch": "main",
+        },
+    ]
+
+
 def get_mail_domains():
     return [
         {
@@ -193,17 +209,17 @@ def get_installed_runtimes():
             },
             {
                 "version": "3.13",
-                "path": "/opt/oilregion-hub/venv/bin/python",
-                "role": "Artist hub runtime",
-                "used_by": ["oilregion-hub"],
-                "venv": "/opt/oilregion-hub/venv",
+                "path": "/var/www/oilhub/venv/bin/python",
+                "role": "Oil Region Hub runtime",
+                "used_by": ["oilhub"],
+                "venv": "/var/www/oilhub/venv",
             },
         ],
         "databases": [
             {"name": "MariaDB", "version": "11.4.10", "port": 3306,
              "databases": ["slowbread_db", "wp2_db", "wp3_db"]},
             {"name": "PostgreSQL", "version": "16.6", "port": 5432,
-             "databases": ["odoo1_db", "odoo2_db", "semaphore", "modoboa", "oilregion_db"]},
+             "databases": ["odoo1_db", "odoo2_db", "semaphore", "modoboa", "oilhub_db"]},
         ],
         "other": [
             {"name": "Nginx", "version": "1.27.4"},

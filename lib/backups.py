@@ -27,6 +27,7 @@ BACKUP_BASE = Path("/var/backups")
 LAST_RUN_FILE = BACKUP_BASE / "last_run.json"
 CHECKSUMS_FILE = BACKUP_BASE / "checksums.json"
 VERIFY_HISTORY_FILE = BACKUP_BASE / "verify_history.json"
+RCLONE_STATUS_FILE = BACKUP_BASE / "rclone_status.json"
 BACKUP_LOG = Path("/var/log/backup.log")
 SITE_BACKUP_DIR = BACKUP_BASE / "sites"
 
@@ -174,6 +175,16 @@ def get_backup_status():
         "last_verify": last_verify,
         "verify_status": last_verify_status,
     }
+
+
+@st.cache_data(ttl=60)
+def get_rclone_status() -> dict | None:
+    """Read /var/backups/rclone_status.json written by rclone_check.py.
+
+    Returns None when the file isn't present (e.g. local dev, or the
+    check has never run on the server). Returns the parsed dict otherwise.
+    """
+    return _load_json(RCLONE_STATUS_FILE)
 
 
 def _provider_summary_for_dashboard() -> list[dict]:
