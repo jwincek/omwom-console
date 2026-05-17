@@ -12,7 +12,7 @@ Environment="HOME=/opt/omwom-console"
 Environment="RCLONE_CONFIG=/opt/omwom-console/.config/rclone/rclone.conf"
 EnvironmentFile=/opt/omwom-console/.env
 ExecStart=/opt/omwom-console/venv/bin/python -m streamlit run Dashboard.py \
-    --server.port 8073 \
+    --server.port 8501 \
     --server.address 127.0.0.1 \
     --server.headless true \
     --browser.gatherUsageStats false
